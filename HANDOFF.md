@@ -8,7 +8,7 @@
 - 현재 구현 단계: 단계 6 Maskable PPO 학습 시작 전
 - 진행 중 작업: 없음
 - Blocker: 없음
-- Git 상태: `main` 브랜치로 초기화했으며 GitHub `origin`이 등록됨
+- Git 상태: 로컬 `main`이 `origin/main`을 추적하며 첫 push 완료
 - Git 원격: `https://github.com/Hy210/Satellite-RL-Scheduling-Lab.git`
 
 ## 현재 목표
@@ -47,6 +47,7 @@
 - Gym checker, core 일치, seed, full 관측, Maskable PPO 예측·rollout 검증
 - Dict observation과 padding/action mask 개념을 학습 노트와 데이터 형식에 기록
 - Git 저장소를 `main` 브랜치로 초기화하고 GitHub 원격 `origin` 등록
+- 초기 프로젝트 commit을 생성하고 GitHub `origin/main`으로 push 완료
 
 ## 주요 파일
 
