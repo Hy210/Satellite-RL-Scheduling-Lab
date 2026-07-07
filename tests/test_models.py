@@ -71,3 +71,12 @@ def test_scenario_rejects_capture_that_does_not_fit_window() -> None:
 
     with pytest.raises(ValidationError, match="full imaging duration"):
         Scenario.model_validate(invalid)
+
+
+def test_scenario_rejects_unknown_access_window_reference() -> None:
+    scenario = generate_scenario(seed=7, size="tiny")
+    invalid = scenario.model_dump()
+    invalid["opportunities"][0]["source_access_window_id"] = "missing-access-window"
+
+    with pytest.raises(ValidationError, match="unknown access window"):
+        Scenario.model_validate(invalid)

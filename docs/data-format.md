@@ -20,7 +20,7 @@
 
 ## 3. Geometry
 
-초기 geometry는 날짜변경선을 넘지 않는 직사각형 경계로 표현한다.
+초기 geometry는 날짜변경선을 넘지 않는 직사각형 경계 또는 단순 polygon으로 표현한다.
 
 ```text
 Rectangle
@@ -39,6 +39,17 @@ min_lon < max_lon
 
 복잡한 polygon과 날짜변경선 교차는 초기 범위에서 제외한다.
 
+`Polygon`은 최소 3개의 꼭짓점을 가진다.
+
+```text
+Polygon
+  vertices[]:
+    lat: -90..90
+    lon: -180..180
+```
+
+polygon은 면적이 0이면 거부한다. 현재 생성기는 strip과 footprint를 4개 꼭짓점의 회전 polygon으로 만든다.
+
 ## 4. 주요 모델
 
 ### Scenario
@@ -53,6 +64,9 @@ min_lon < max_lon
 - `orders[]`
 - `strips[]`
 - `opportunities[]`
+- `ground_track_points[]`
+- `footprint_samples[]`
+- `access_windows[]`
 
 ### SatelliteConfig
 
@@ -80,6 +94,8 @@ min_lon < max_lon
 - pass ID와 순서
 - 시작 및 종료 시각
 
+`OrbitPass` 자체는 시간 구간만 가진다. 같은 pass ID에 연결되는 ground track과 footprint 샘플은 `ground_track_points[]`와 `footprint_samples[]`에 별도로 저장한다.
+
 ### Order
 
 - order ID와 이름
@@ -93,7 +109,7 @@ min_lon < max_lon
 - strip ID
 - 소유 order ID
 - 주문 안에서의 순서
-- 직사각형 geometry
+- pass 진행 방향에 맞춘 polygon geometry
 
 촬영시간은 strip별 필드로 중복 저장하지 않고 환경 전체의 `imaging_duration_sec`를 사용한다.
 
@@ -104,6 +120,41 @@ min_lon < max_lon
 - 접근 구간 시작과 종료 시각
 - 이산화된 촬영 시각
 - 요구 roll/tilt/pitch
+- 파생 source access window ID
+
+Opportunity는 실제 또는 가상 footprint가 strip과 교차한 접근 가능 구간에서 생성되어야 한다. 구현된 가상 생성기는 `source_access_window_id`로 opportunity가 어떤 access window에서 파생됐는지 추적한다.
+
+### GroundTrackPoint
+
+실제 궤도 데이터가 연결되기 전까지 seed 기반 가상 생성기가 pass별 ground track과 footprint를 만든다. 이 데이터는 RL 정책 입력의 핵심 특성이 아니라 시나리오 검증과 지도 시각화를 위한 근거 데이터다.
+
+- ground track point ID
+- pass ID
+- sample index
+- 시나리오 시작 기준 시각
+- 위성 지상점 위도/경도
+
+### FootprintSample
+
+- footprint sample ID
+- pass ID
+- 참조 ground track point ID
+- sample index
+- 시나리오 시작 기준 시각
+- footprint 중심 위도/경도
+- footprint 또는 swath 근사 polygon geometry
+
+현재 구현은 footprint를 pass 진행 방향에 맞춘 회전 polygon으로 저장한다. 실제 궤도 전파 결과를 연결할 때는 같은 의미를 유지하되 geometry 표현을 확장할 수 있다.
+
+### AccessWindow
+
+- access window ID
+- pass ID
+- order ID와 strip ID
+- 교차 시작/종료 시각
+- 최소 off-nadir 시각
+- 교차 근거 footprint ID 목록
+- 파생 opportunity ID 목록
 
 ### TrainingRun 및 EvaluationRun
 
@@ -120,6 +171,22 @@ stopped
 failed
 ```
 
+### MaskablePPOTrainingConfig
+
+Maskable PPO 학습을 재현하기 위한 설정이다.
+
+- `total_timesteps`: 학습에 사용할 전체 transition 수
+- `learning_seed`: 학습 환경과 정책 초기화 seed
+- `evaluation_seed`: 고정 평가 episode seed
+- `n_steps`, `batch_size`, `n_epochs`: PPO rollout과 업데이트 크기
+- `learning_rate`, `gamma`: PPO 최적화 파라미터
+- `checkpoint_interval`: checkpoint 저장 timestep 간격
+- `evaluation_interval`: 고정 시나리오 평가 timestep 간격
+- `deterministic_eval`: 평가 시 deterministic action 사용 여부
+- `artifact_root`: 학습 산출물 루트 경로, 기본값은 `data/runs`
+
+초기 단일 환경 trainer에서는 `batch_size <= n_steps`를 요구한다. 이 제한은 rollout buffer보다 큰 batch를 요청하는 잘못된 smoke 학습 설정을 조기에 거부하기 위한 구현 경계다.
+
 ## 5. 참조 무결성
 
 Scenario 로드 시 다음을 검증한다.
@@ -132,6 +199,15 @@ Scenario 로드 시 다음을 검증한다.
 - pass, 주문 및 촬영이 시나리오 시간 안에 들어간다.
 - opportunity가 전체 5초 촬영시간을 접근 구간 안에 담을 수 있다.
 - strip 수가 설정된 최대값을 넘지 않는다.
+
+ground track과 footprint 데이터에 대해 다음 검증도 수행한다.
+
+- ground track과 footprint 샘플이 존재하는 pass를 참조한다.
+- 샘플 시각이 참조 pass의 시간 구간 안에 있다.
+- access window가 존재하는 strip과 pass를 참조한다.
+- opportunity의 접근 구간이 참조 access window 안에 들어간다.
+- access window는 footprint와 strip의 교차에서 생성된 근거를 가진다.
+- opportunity가 참조하는 access window의 파생 opportunity 목록에 포함되어야 한다.
 
 ## 6. 구조 검증과 Action mask의 경계
 
@@ -156,6 +232,23 @@ Scenario 로드 시 다음을 검증한다.
 `Scenario.to_json()`과 `Scenario.from_json()`은 문자열 직렬화를 담당한다. `Scenario.save(path)`와 `Scenario.load(path)`는 UTF-8 JSON 파일 저장과 복원을 담당한다.
 
 동일한 Scenario를 저장하고 다시 읽었을 때 의미적으로 같은 모델이어야 한다. seed 기반 생성기는 동일 seed와 크기에서 동일한 JSON을 생성해야 한다.
+
+Maskable PPO 학습 산출물은 `data/runs/<run-id>/` 아래에 저장한다.
+
+```text
+data/runs/<run-id>/
+|-- config.json
+|-- run.json
+|-- checkpoints/
+|   +-- checkpoint-<timesteps>.zip
+|-- metrics/
+|   |-- training-metrics.jsonl
+|   +-- final-evaluation.json
++-- model/
+    +-- final-model.zip
+```
+
+`training-metrics.jsonl`의 각 줄은 특정 timestep에서의 고정 시나리오 평가 결과를 담는다. `final-evaluation.json`은 최종 모델의 reward breakdown, 완료 strip 및 주문 수, step별 선택 요약을 포함한다.
 
 ## 8. Gymnasium 관측 및 행동 계약
 

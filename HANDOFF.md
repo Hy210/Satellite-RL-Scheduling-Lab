@@ -4,11 +4,11 @@
 
 - 마지막 갱신일: 2026-07-07
 - 작업 디렉터리: `D:\HY\01. Developer\Project\NSICPS_RL_Scheduling`
-- 프로젝트 상태: 구현 계획 단계 0~5 완료
-- 현재 구현 단계: 단계 6 Maskable PPO 학습 시작 전
+- 프로젝트 상태: 구현 계획 단계 0~5 완료, 단계 2A 완료, 단계 6 일부 구현
+- 현재 구현 단계: 단계 6 Maskable PPO 학습 성능 검증 전
 - 진행 중 작업: 없음
 - Blocker: 없음
-- Git 상태: 로컬 `main`이 `origin/main`을 추적하며 첫 push 완료
+- Git 상태: 작업 트리에 단계 6 구현, 단계 2A 생성기 구현, 임시 HTML 뷰어 및 문서 변경 있음. `docs/rl-study-notes.md`는 이번 작업 전부터 수정된 상태로 남아 있음
 - Git 원격: `https://github.com/Hy210/Satellite-RL-Scheduling-Lab.git`
 
 ## 현재 목표
@@ -21,6 +21,12 @@
 - 단일 위성, 1일, 30 pass, 주문 100개 규모 확정
 - seed 기반 고정 가상 시나리오 방향 확정
 - 외부에서 분할된 strip과 사전 계산된 opportunity 입력 책임 확정
+- 실제 궤도 데이터가 없을 때 opportunity의 공간적 근거를 만들기 위한 가상 ground track/footprint 생성기 필요성 설계 반영
+- `GroundTrackPoint`, `FootprintSample`, `AccessWindow` 데이터 모델 추가
+- seed 기반 가상 ground track, 회전 strip/footprint polygon, footprint-strip 교차 기반 access window 생성 구현
+- opportunity가 `source_access_window_id`로 파생 access window를 추적하도록 구현
+- pass, ground track, footprint, strip 및 opportunity를 확인하는 임시 HTML 뷰어 `tools/scenario_viewer.html` 추가
+- `tools/scenario_viewer.html`의 지도 컨테이너 높이와 로드 후 `fitBounds()` 처리를 보정해 타일과 오버레이가 분리되어 보이는 렌더링 문제를 수정
 - React, FastAPI 및 독립 RL core 기반 웹 구조 설계
 - 단계 0~14 구현 계획과 단계별 완료 조건 작성
 - 개인 RL 학습 노트와 자동 기록 규칙 작성
@@ -48,6 +54,12 @@
 - Dict observation과 padding/action mask 개념을 학습 노트와 데이터 형식에 기록
 - Git 저장소를 `main` 브랜치로 초기화하고 GitHub 원격 `origin` 등록
 - 초기 프로젝트 commit을 생성하고 GitHub `origin/main`으로 push 완료
+- Stable-Baselines3와 sb3-contrib의 관계를 개인 RL 학습 노트에 기록
+- `MaskablePPOTrainingConfig` 학습 설정 모델 구현
+- `rl_core/training.py`에 Maskable PPO 학습, checkpoint, 주기적 고정 시나리오 평가, metric 기록, 최종 모델 저장 및 reload 평가 구현
+- 학습 산출물 경로를 `data/runs/<run-id>/` 구조로 확정
+- 단계 6 smoke 테스트 추가
+- `docs/rl-scheduling-design.md`, `docs/data-format.md`, `docs/web-application-design.md`, `docs/implementation-plan.md`, `docs/project-knowledge.md`에 가상 ground track, footprint, access window 및 지도 검수 흐름 반영
 
 ## 주요 파일
 
@@ -62,36 +74,48 @@
 - `pyproject.toml`: Python 패키지, 테스트, lint 및 type 검사 설정
 - `rl_core/models.py`: Pydantic 데이터 계약
 - `rl_core/generator.py`: seed 기반 가상 시나리오 생성기
+- `tools/scenario_viewer.html`: 시나리오 JSON을 불러와 pass별 ground track, footprint, strip 및 opportunity를 확인하는 임시 지도 뷰어
 - `rl_core/simulator.py`: 결정론적 이벤트 시뮬레이터
 - `rl_core/policies.py`: 기준 정책과 공통 평가기
 - `rl_core/gym_env.py`: Gymnasium 및 Maskable PPO 연결 wrapper
+- `rl_core/training.py`: Maskable PPO 학습, 평가 및 artifact 저장
 - `tests/`: 데이터, 생성기, 시뮬레이터 및 통합 테스트
+- `tests/test_training.py`: 단계 6 학습 artifact와 reload 평가 smoke 테스트
 - `frontend/`: 최소 React/TypeScript/Vite 실행 골격
 
 ## 수행한 검증
 
 - Python 3.12.10 전용 `.venv`를 생성하고 editable package 설치를 확인했다.
-- Pytest: 60개 테스트 통과
+- Pytest: 63개 테스트 통과
 - Python coverage: 95%
 - Ruff lint: 통과
 - Ruff format check: 통과
 - Mypy strict 검사: 통과
 - Frontend production build: 통과
 - full 정책 비교(seed 20260707): strip 572개, opportunity 3,447개, 정책별 54~57개 경쟁 step 확인
+- 단계 6 변경 파일 기준 Ruff lint 통과
+- 단계 6 변경 파일 기준 Mypy 검사 통과
+- `tests/test_training.py`: 3개 테스트 통과
+- 단계 2A 변경 후 Pytest: 66개 테스트 통과
+- 단계 2A 변경 후 Ruff lint: 통과
+- 단계 2A 변경 후 Mypy strict 검사: 통과
 
 ## 알려진 문제와 미확정 사항
 
 - 지도 라이브러리는 실제 geometry와 편집 요구를 확인한 뒤 선정한다.
-- 실제 궤도 전파 인터페이스는 초기 가상 생성기 이후 검토한다.
+- 실제 궤도 전파 인터페이스는 가상 ground track/footprint 데이터 계약을 실제 데이터 형식에 맞춰 교체하는 방향으로 검토한다.
+- 가상 ground track/footprint 생성기는 정밀 궤도 물리가 아니라 검수 가능한 근거 데이터용 단순 모델이다.
+- `tools/scenario_viewer.html`은 추가했고, 첫 수동 확인에서 지도 컨테이너 렌더링 문제가 발견되어 CSS와 Leaflet size/bounds 처리를 수정했다. 이후 strip/footprint를 pass 진행 방향에 맞춘 polygon으로 변경했고, 브라우저에서 지도 렌더링과 기울기 정합성을 확인했다.
 - 후보 128개 제한은 full 시나리오 생성 후 분포와 잘림 영향을 검증해야 한다.
 - 10초 opportunity 양자화는 가상 시나리오용 가정이므로 실제 궤도 데이터 연결 시 재검토해야 한다.
 - 2,000개 strip을 평탄화하는 기본 MultiInputPolicy는 계산량이 클 수 있어 실제 학습 성능을 측정해야 한다.
+- Maskable PPO smoke 학습은 저장과 reload 평가만 검증했다. Random valid보다 일관되게 우수한지는 아직 충분한 학습 길이와 반복 seed로 확인하지 않았다.
 
 ## 다음 세션의 첫 작업
 
-[구현 계획의 단계 6](docs/implementation-plan.md#단계-6-maskable-ppo-학습)를 시작한다.
+[구현 계획의 단계 6](docs/implementation-plan.md#단계-6-maskable-ppo-학습)의 성능 검증으로 돌아간다.
 
-tiny 시나리오에서 Maskable PPO 학습 설정, checkpoint, 평가 callback과 metric 기록을 구현한다. 먼저 짧은 학습으로 Random valid보다 나은 방향으로 학습 가능한지 확인하고, 관측 크기에 따른 속도와 메모리를 측정한다.
+tiny 시나리오에서 `train_maskable_ppo()` 학습 길이와 seed를 늘려 Random valid 기준선보다 일관되게 우수한지 비교한다. 평가에는 총 return뿐 아니라 reward breakdown, 완료 strip/order 수, skip 반복 또는 특정 후보 고착 여부를 함께 확인한다.
 
 ## 관련 문서
 

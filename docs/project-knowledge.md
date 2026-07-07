@@ -28,7 +28,7 @@
 
 ### 3.1 주문 영역과 strip
 
-**상태:** 확정  
+**상태:** 확정
 **마지막 갱신:** 2026-07-06
 
 하나의 주문은 실제 위경도를 가진 지리 영역이며 위성의 1회 촬영 단위인 여러 직사각형 strip으로 구성된다. 주문마다 strip 수가 다를 수 있지만 첫 프로토타입에서 모든 strip의 크기, 촬영시간 및 주문 내부 가치는 동일하다.
@@ -42,7 +42,7 @@
 ### 3.2 Orbit, pass와 촬영 기회
 
 **상태:** 확정과 가정 혼합  
-**마지막 갱신:** 2026-07-06
+**마지막 갱신:** 2026-07-07
 
 이 프로젝트에서 여러 orbit/pass는 위성 한 대가 하루 동안 연속해서 지나는 궤도 구간을 의미한다. 초기 시나리오는 30개 pass를 사용한다.
 
@@ -53,6 +53,14 @@
 - 접근 구간 후반
 
 실제 궤도 전파와 가시성 계산은 RL core의 책임이 아니다. 촬영 기회는 외부 계산기 또는 seed 기반 가상 생성기가 사전 계산해 제공한다.
+
+2026-07-07 설계 검토에서 현재 생성기가 pass 시간 구간과 무작위 접근 구간만으로 opportunity를 만들기 때문에, strip이 특정 pass의 궤도와 footprint 관점에서 왜 유효한지 시각적으로 확인할 수 없다는 허점이 확인됐다. 실제 궤도 데이터가 아직 없으므로 중간 단계로 가상 ground track과 footprint 생성기를 추가한다.
+
+가상 생성기는 pass별 ground track 좌표, footprint 또는 swath 근사 영역, footprint-strip 교차로부터 access window를 만든 뒤 opportunity를 파생해야 한다. 이는 정밀 궤도 모델이 아니라 실제 데이터가 들어오기 전까지 opportunity의 공간적 근거를 보존하고 지도 검수를 가능하게 하는 전처리 계층이다.
+
+구현된 가상 생성기는 20초 간격의 pass 샘플, pass 진행 방향에 맞춘 strip polygon, 회전 footprint polygon, footprint-strip 교차 기반 access window 및 `source_access_window_id`를 가진 opportunity를 생성한다. 이는 공간적 근거 추적을 위한 가상 데이터이며 실제 궤도 전파나 센서 물리 모델 검증을 대체하지 않는다.
+
+pitch를 0으로 고정하더라도 strip이 위경도 축 정렬 사각형이어야 하는 것은 아니다. 이 프로젝트의 가상 모델에서는 pitch 0을 along-track 방향으로 앞뒤를 기울여 보지 않는다는 의미로 해석하고, strip의 긴 축은 pass의 ground track 진행 방향을 따르게 한다. roll/tilt는 여전히 요구 자세와 off-nadir 근사를 표현하는 값으로 사용한다.
 
 세 후보 이산화는 실제 위성 운용의 일반 법칙이 아니라 행동 공간을 제한하기 위한 프로젝트 가정이다.
 
@@ -240,6 +248,17 @@ Gymnasium wrapper는 simulator의 보상과 제약을 다시 구현하지 않고
 
 일반 Gym checker처럼 action mask를 인식하지 않는 호출이 invalid action을 전달하면 wrapper는 촬영을 실행하지 않고 skip으로 변환한다. 이를 `info`에 남겨 하드 제약을 지키면서도 외부 호출 오류를 관찰할 수 있게 한다.
 
+### 6.7 학습 산출물과 평가 분리
+
+**상태:** 확정
+**마지막 갱신:** 2026-07-07
+
+Maskable PPO 학습은 학습 중 rollout return만으로 판단하지 않고, 별도의 평가 seed로 고정 시나리오를 주기적으로 실행해 metric을 남긴다. 이렇게 하면 정책 업데이트 과정의 noisy한 학습 로그와 실제 비교용 episode 결과를 구분할 수 있다.
+
+초기 artifact 구조는 `data/runs/<run-id>/` 아래에 설정, run 상태, checkpoint, metric 및 최종 모델을 함께 둔다. 이 구조는 나중에 Backend와 웹이 실행 상태와 결과 파일을 추적하기 위한 최소 단위가 된다.
+
+현재 구현은 단일 Gym 환경에서 시작하므로 `batch_size <= n_steps`를 요구한다. 병렬 환경 또는 더 큰 rollout으로 확장할 때 이 제약과 하이퍼파라미터 기본값은 다시 검토한다.
+
 ## 7. 용어집
 
 | 용어 | 프로젝트에서의 의미 |
@@ -248,6 +267,9 @@ Gymnasium wrapper는 simulator의 보상과 제약을 다시 구현하지 않고
 | Strip | 위성의 1회 촬영 단위인 직사각형 영역 |
 | Opportunity | 특정 strip을 특정 pass, 시각 및 자세로 촬영할 수 있는 후보 |
 | Pass | 위성 한 대의 연속 궤도 중 하나의 접근 구간 |
+| Ground track | pass 중 위성의 지상점이 시간에 따라 이동한 가상 또는 실제 궤적 |
+| Footprint | 특정 시각과 자세에서 센서가 지면에서 덮는 가상 또는 실제 영역 |
+| Access window | footprint가 특정 strip과 교차해 촬영 후보를 만들 수 있는 연속 시간 구간 |
 | Off-nadir | 정면 관측 방향에서 벗어난 정도를 나타내는 값 |
 | Slew | 현재 자세에서 다음 촬영 자세로 전환하는 기동 |
 | Settling time | 자세 전환 후 촬영 안정화를 위해 필요한 시간 |
@@ -259,6 +281,7 @@ Gymnasium wrapper는 simulator의 보상과 제약을 다시 구현하지 않고
 | 주제 | 상태 | 내용 |
 |---|---|---|
 | 실제 궤도 인터페이스 | 검토 필요 | 가상 opportunity 형식을 실제 궤도 전파 결과와 연결할 때 데이터 계약 검토 필요 |
+| 가상 footprint 생성기 | 관찰 | 20초 샘플 ground track, 회전 strip/footprint polygon 및 access window 기반 opportunity 생성은 구현됨. 브라우저 지도에서 pass 기울기와 strip 방향 재확인 필요 |
 | 정밀 자세 모델 | 검토 필요 | 현재 off-nadir 및 축별 순차 기동은 단순 근사이므로 실제 기체 적용 전 교체 필요 |
 | 다중 위성 | 검토 필요 | 위성 두 대 확장 시 충돌, 주문 공유 및 행동 공간 설계 필요 |
 | 구름과 영상 품질 | 검토 필요 | strip별 품질과 불확실성을 관측 및 보상에 반영하는 방법 필요 |
@@ -267,6 +290,10 @@ Gymnasium wrapper는 simulator의 보상과 제약을 다시 구현하지 않고
 
 ## 9. 변경 기록
 
+- 2026-07-07: Maskable PPO 학습 산출물 구조와 학습/평가 seed 분리의 의미를 기록했다.
+- 2026-07-07: strip과 footprint를 pass 진행 방향에 맞춘 polygon으로 바꾸고 pitch 0 해석을 기록했다.
+- 2026-07-07: 가상 ground track, footprint, access window 생성기와 opportunity 근거 추적 구현 결과를 기록했다.
+- 2026-07-07: opportunity 생성의 공간적 근거가 부족한 설계 허점을 확인하고 가상 ground track/footprint 생성기 필요성을 기록했다.
 - 2026-07-07: Gymnasium Dict 관측, padding/presence와 action mask의 책임 경계를 기록했다.
 - 2026-07-07: 기준 정책 구현과 시각 양자화를 통해 학습 환경에 경쟁 가능한 행동이 필요함을 기록했다.
 - 2026-07-06: 단계 0~3 구현에서 확정된 개발 기반과 full 시나리오 스모크 실행 관찰을 기록했다.

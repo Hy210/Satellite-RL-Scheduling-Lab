@@ -103,6 +103,7 @@ RL core는 FastAPI나 React를 참조하지 않는 독립 모듈로 유지한다
 seed 기반 가상 시나리오 생성 또는 준비된 시나리오 불러오기
 -> 주문 영역 확인
 -> 사전 생성된 strip 확인
+-> 가상 또는 실제 ground track/footprint 확인
 -> 사전 계산된 촬영 기회 확인
 -> 환경/보상 파라미터 설정
 -> 유효성 검사
@@ -110,6 +111,8 @@ seed 기반 가상 시나리오 생성 또는 준비된 시나리오 불러오�
 ```
 
 첫 버전에서 주문 polygon의 strip 분할과 촬영 기회 계산은 웹 애플리케이션 또는 RL core가 담당하지 않는다. 별도의 전처리기나 가상 시나리오 생성기가 만든 결과를 입력받는다.
+
+실제 궤도 데이터가 제공되기 전까지는 seed 기반 가상 생성기가 ground track, footprint, access window 및 opportunity를 함께 만든다. 웹은 이 데이터를 지도에서 검수하는 역할을 하며, footprint와 strip 교차 판정을 중복 구현하지 않는다.
 
 ### 5.2 학습
 
@@ -174,8 +177,9 @@ seed 기반 가상 시나리오 생성 또는 준비된 시나리오 불러오�
 
 - 주문 geometry 표시
 - 주문 우선순위별 색상 구분
-- 선택한 주문의 strip 표시
-- orbit/pass 표시 여부 제어
+- 선택한 주문의 회전 strip polygon 표시
+- orbit/pass ground track 표시 여부 제어
+- footprint 또는 swath 표시 여부 제어
 - 선택한 strip의 촬영 기회 표시
 
 초기 우선순위 색상은 다음과 같이 사용한다.
@@ -221,6 +225,8 @@ background = 회색
 ### 6.4 촬영 기회 검사 화면
 
 - pass별 촬영 기회 수
+- pass별 ground track과 footprint 샘플
+- footprint와 strip의 교차로 생성된 access window
 - 선택한 주문/strip의 모든 기회
 - 초반, 최소각, 후반 후보 구분
 - 후보 시각과 요구 roll/tilt
@@ -228,7 +234,7 @@ background = 회색
 - 주문 요구 기간 포함 여부
 - 사전 마스킹 또는 데이터 오류 사유
 
-이 화면은 궤도 인터페이스와 RL 환경 사이의 입력 데이터를 검증하는 용도로 사용한다.
+이 화면은 궤도 인터페이스와 RL 환경 사이의 입력 데이터를 검증하는 용도로 사용한다. 실제 궤도 데이터가 없는 동안에는 가상 ground track/footprint 생성기가 만든 opportunity의 공간적 근거를 확인한다.
 
 ### 6.5 학습 설정 및 제어
 
@@ -309,7 +315,8 @@ background = 회색
 
 - 주문 영역과 strip
 - 촬영 완료, 부분 완료, 미촬영 상태
-- 선택한 pass의 궤도
+- 선택한 pass의 ground track
+- 선택한 시각 또는 구간의 footprint
 - 해당 pass에서 촬영한 strip
 - 선택된 촬영 기회의 자세와 시각
 
@@ -460,6 +467,7 @@ Backend가 반환하는 상태, 보상, action mask 및 결과 값은 RL core의
 - 로컬 단일 사용자 웹 앱
 - 기존 시나리오 조회와 속성 편집
 - 주문, strip, 촬영 기회 시각화
+- 가상 또는 실제 ground track/footprint 조회와 검수
 - 학습 시작, 중지 및 상태 확인
 - 학습 곡선
 - 정책별 결과 비교
@@ -478,7 +486,7 @@ Backend가 반환하는 상태, 보상, action mask 및 결과 값은 RL core의
 - 지도 기반의 고급 GIS 편집
 - 지도에서 주문 polygon 직접 생성
 - 주문 polygon의 자동 strip 분할
-- 웹 또는 RL core 내부의 궤도 전파와 촬영 기회 계산
+- 웹 또는 RL core 내부의 정밀 궤도 전파와 촬영 기회 계산
 - 운영 위성 시스템과 실시간 연동
 
 ## 13. 권장 구현 순서

@@ -68,6 +68,49 @@ class Rectangle(StrictModel):
         return self
 
 
+class GeoPoint(StrictModel):
+    """지도 geometry를 구성하는 위경도 꼭짓점이다."""
+
+    lat: float = Field(ge=-90.0, le=90.0)
+    lon: float = Field(ge=-180.0, le=180.0)
+
+
+class Polygon(StrictModel):
+    """날짜변경선을 넘지 않는 단순 polygon geometry다."""
+
+    vertices: list[GeoPoint] = Field(min_length=3)
+
+    @model_validator(mode="after")
+    def validate_area(self) -> Self:
+        if abs(self.signed_area) < 1e-12:
+            raise ValueError("polygon area must be non-zero")
+        return self
+
+    @property
+    def signed_area(self) -> float:
+        total = 0.0
+        for index, vertex in enumerate(self.vertices):
+            next_vertex = self.vertices[(index + 1) % len(self.vertices)]
+            total += vertex.lon * next_vertex.lat - next_vertex.lon * vertex.lat
+        return total / 2.0
+
+    @property
+    def min_lat(self) -> float:
+        return min(vertex.lat for vertex in self.vertices)
+
+    @property
+    def max_lat(self) -> float:
+        return max(vertex.lat for vertex in self.vertices)
+
+    @property
+    def min_lon(self) -> float:
+        return min(vertex.lon for vertex in self.vertices)
+
+    @property
+    def max_lon(self) -> float:
+        return max(vertex.lon for vertex in self.vertices)
+
+
 class AngleRange(StrictModel):
     """주문 또는 위성이 허용하는 최소·최대 자세각 범위다."""
 
@@ -143,6 +186,30 @@ class OrbitPass(StrictModel):
         return self
 
 
+class GroundTrackPoint(StrictModel):
+    """pass 중 위성 지상점이 특정 시각에 위치한 가상 또는 실제 좌표다."""
+
+    point_id: str = Field(min_length=1)
+    pass_id: str = Field(min_length=1)
+    sample_index: int = Field(ge=0)
+    time_sec: float = Field(ge=0.0)
+    latitude_deg: float = Field(ge=-90.0, le=90.0)
+    longitude_deg: float = Field(ge=-180.0, le=180.0)
+
+
+class FootprintSample(StrictModel):
+    """특정 시각의 센서 지상 커버리지를 단순 직사각형으로 근사한 샘플이다."""
+
+    footprint_id: str = Field(min_length=1)
+    pass_id: str = Field(min_length=1)
+    ground_track_point_id: str = Field(min_length=1)
+    sample_index: int = Field(ge=0)
+    time_sec: float = Field(ge=0.0)
+    center_latitude_deg: float = Field(ge=-90.0, le=90.0)
+    center_longitude_deg: float = Field(ge=-180.0, le=180.0)
+    geometry: Polygon
+
+
 class Order(StrictModel):
     """공통 우선순위와 요구 기간을 가지는 지리적 촬영 주문이다."""
 
@@ -172,7 +239,7 @@ class Strip(StrictModel):
     strip_id: str = Field(min_length=1)
     order_id: str = Field(min_length=1)
     sequence: int = Field(ge=0)
-    geometry: Rectangle
+    geometry: Polygon
 
 
 class Opportunity(StrictModel):
@@ -189,6 +256,7 @@ class Opportunity(StrictModel):
     required_roll_deg: float
     required_tilt_deg: float
     required_pitch_deg: float = 0.0
+    source_access_window_id: str | None = None
 
     @model_validator(mode="after")
     def validate_window(self) -> Self:
@@ -207,6 +275,28 @@ class Opportunity(StrictModel):
         return hypot(self.required_roll_deg, self.required_tilt_deg)
 
 
+class AccessWindow(StrictModel):
+    """footprint와 strip이 연속적으로 교차해 촬영 후보를 만들 수 있는 구간이다."""
+
+    access_window_id: str = Field(min_length=1)
+    pass_id: str = Field(min_length=1)
+    order_id: str = Field(min_length=1)
+    strip_id: str = Field(min_length=1)
+    window_start_sec: float = Field(ge=0.0)
+    window_end_sec: float = Field(gt=0.0)
+    min_off_nadir_time_sec: float = Field(ge=0.0)
+    footprint_ids: list[str] = Field(default_factory=list)
+    opportunity_ids: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_window(self) -> Self:
+        if self.window_start_sec >= self.window_end_sec:
+            raise ValueError("access window start must be before its end")
+        if not self.window_start_sec <= self.min_off_nadir_time_sec < self.window_end_sec:
+            raise ValueError("minimum off-nadir time must lie inside the access window")
+        return self
+
+
 class Scenario(StrictModel):
     """한 episode를 재현하는 데 필요한 모든 고정 입력을 묶은 최상위 모델이다."""
 
@@ -220,6 +310,9 @@ class Scenario(StrictModel):
     orders: list[Order]
     strips: list[Strip]
     opportunities: list[Opportunity]
+    ground_track_points: list[GroundTrackPoint] = Field(default_factory=list)
+    footprint_samples: list[FootprintSample] = Field(default_factory=list)
+    access_windows: list[AccessWindow] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_graph(self) -> Self:
@@ -229,6 +322,15 @@ class Scenario(StrictModel):
         self._require_unique("order", [item.order_id for item in self.orders])
         self._require_unique("strip", [item.strip_id for item in self.strips])
         self._require_unique("opportunity", [item.opportunity_id for item in self.opportunities])
+        self._require_unique(
+            "ground track point", [item.point_id for item in self.ground_track_points]
+        )
+        self._require_unique(
+            "footprint sample", [item.footprint_id for item in self.footprint_samples]
+        )
+        self._require_unique(
+            "access window", [item.access_window_id for item in self.access_windows]
+        )
 
         if not self.orders:
             raise ValueError("scenario must contain at least one order")
@@ -240,6 +342,9 @@ class Scenario(StrictModel):
         pass_by_id = {item.pass_id: item for item in self.passes}
         order_by_id = {item.order_id: item for item in self.orders}
         strip_by_id = {item.strip_id: item for item in self.strips}
+        ground_track_by_id = {item.point_id: item for item in self.ground_track_points}
+        footprint_by_id = {item.footprint_id: item for item in self.footprint_samples}
+        access_window_by_id = {item.access_window_id: item for item in self.access_windows}
 
         strip_counts = {order_id: 0 for order_id in order_by_id}
         for strip in self.strips:
@@ -258,6 +363,55 @@ class Scenario(StrictModel):
             if order.request_end_sec > self.environment.duration_sec:
                 raise ValueError(f"order {order.order_id} exceeds scenario duration")
 
+        for point in self.ground_track_points:
+            referenced_pass = pass_by_id.get(point.pass_id)
+            if referenced_pass is None:
+                raise ValueError(f"ground track point {point.point_id} references an unknown pass")
+            if not referenced_pass.start_time_sec <= point.time_sec <= referenced_pass.end_time_sec:
+                raise ValueError("ground track point time must lie inside its pass")
+
+        for footprint in self.footprint_samples:
+            referenced_pass = pass_by_id.get(footprint.pass_id)
+            referenced_point = ground_track_by_id.get(footprint.ground_track_point_id)
+            if referenced_pass is None or referenced_point is None:
+                raise ValueError(
+                    f"footprint sample {footprint.footprint_id} has an unknown reference"
+                )
+            if referenced_point.pass_id != footprint.pass_id:
+                raise ValueError("footprint sample and ground track point pass do not match")
+            if footprint.time_sec != referenced_point.time_sec:
+                raise ValueError("footprint sample time must match its ground track point")
+            footprint_inside_pass = (
+                referenced_pass.start_time_sec <= footprint.time_sec <= referenced_pass.end_time_sec
+            )
+            if not footprint_inside_pass:
+                raise ValueError("footprint sample time must lie inside its pass")
+
+        for access_window in self.access_windows:
+            referenced_pass = pass_by_id.get(access_window.pass_id)
+            referenced_order = order_by_id.get(access_window.order_id)
+            referenced_strip = strip_by_id.get(access_window.strip_id)
+            if referenced_pass is None or referenced_order is None or referenced_strip is None:
+                raise ValueError(
+                    f"access window {access_window.access_window_id} has an unknown reference"
+                )
+            if referenced_strip.order_id != access_window.order_id:
+                raise ValueError("access window order and strip owner do not match")
+            if access_window.window_start_sec < referenced_pass.start_time_sec:
+                raise ValueError("access window starts before its pass")
+            if access_window.window_end_sec > referenced_pass.end_time_sec:
+                raise ValueError("access window ends after its pass")
+            if access_window.window_start_sec < referenced_order.request_start_sec:
+                raise ValueError("access window starts before its order period")
+            if access_window.window_end_sec > referenced_order.request_end_sec:
+                raise ValueError("access window ends after its order period")
+            for footprint_id in access_window.footprint_ids:
+                referenced_footprint = footprint_by_id.get(footprint_id)
+                if referenced_footprint is None:
+                    raise ValueError("access window references an unknown footprint sample")
+                if referenced_footprint.pass_id != access_window.pass_id:
+                    raise ValueError("access window footprint pass does not match")
+
         # 자세 전환 가능 여부처럼 state에 따라 달라지는 조건은 여기서 거부하지 않고
         # simulator의 action mask에서 판정한다.
         for opportunity in self.opportunities:
@@ -270,6 +424,18 @@ class Scenario(StrictModel):
                 )
             if referenced_strip.order_id != opportunity.order_id:
                 raise ValueError("opportunity order and strip owner do not match")
+            if opportunity.source_access_window_id is not None:
+                referenced_window = access_window_by_id.get(opportunity.source_access_window_id)
+                if referenced_window is None:
+                    raise ValueError("opportunity references an unknown access window")
+                if (
+                    referenced_window.pass_id != opportunity.pass_id
+                    or referenced_window.order_id != opportunity.order_id
+                    or referenced_window.strip_id != opportunity.strip_id
+                ):
+                    raise ValueError("opportunity and access window references do not match")
+                if opportunity.opportunity_id not in referenced_window.opportunity_ids:
+                    raise ValueError("access window does not list the derived opportunity")
             capture_end = opportunity.capture_time_sec + self.environment.imaging_duration_sec
             if opportunity.window_start_sec < referenced_pass.start_time_sec:
                 raise ValueError("opportunity window starts before its pass")
@@ -283,6 +449,12 @@ class Scenario(StrictModel):
                 raise ValueError("opportunity cannot contain the full imaging duration")
             if capture_end > self.environment.duration_sec:
                 raise ValueError("opportunity capture exceeds scenario duration")
+            if opportunity.source_access_window_id is not None:
+                referenced_window = access_window_by_id[opportunity.source_access_window_id]
+                if opportunity.window_start_sec < referenced_window.window_start_sec:
+                    raise ValueError("opportunity starts before its source access window")
+                if opportunity.window_end_sec > referenced_window.window_end_sec:
+                    raise ValueError("opportunity ends after its source access window")
 
         return self
 
@@ -312,6 +484,8 @@ class Scenario(StrictModel):
 
 
 class TrainingRun(StrictModel):
+    """학습 실행 하나를 추적하기 위한 최소 메타데이터다."""
+
     run_id: str = Field(min_length=1)
     scenario_id: str = Field(min_length=1)
     algorithm: str = Field(min_length=1)
@@ -323,6 +497,8 @@ class TrainingRun(StrictModel):
 
 
 class EvaluationRun(StrictModel):
+    """학습된 정책 또는 기준 정책의 평가 실행 메타데이터다."""
+
     run_id: str = Field(min_length=1)
     scenario_id: str = Field(min_length=1)
     policy_name: str = Field(min_length=1)
@@ -331,3 +507,28 @@ class EvaluationRun(StrictModel):
     source_training_run_id: str | None = None
     result_path: str | None = None
     error_message: str | None = None
+
+
+class MaskablePPOTrainingConfig(StrictModel):
+    """Maskable PPO 학습을 재현하기 위한 하이퍼파라미터와 저장 설정이다."""
+
+    total_timesteps: int = Field(default=1_024, gt=0)
+    learning_seed: int
+    evaluation_seed: int
+    n_steps: int = Field(default=64, gt=0)
+    batch_size: int = Field(default=32, gt=0)
+    n_epochs: int = Field(default=2, gt=0)
+    learning_rate: float = Field(default=3e-4, gt=0.0)
+    gamma: float = Field(default=0.99, gt=0.0, le=1.0)
+    checkpoint_interval: int = Field(default=512, gt=0)
+    evaluation_interval: int = Field(default=512, gt=0)
+    deterministic_eval: bool = True
+    artifact_root: Path = Path("data/runs")
+
+    @model_validator(mode="after")
+    def validate_batch_shape(self) -> Self:
+        if self.batch_size > self.n_steps:
+            raise ValueError(
+                "batch_size must not exceed n_steps for the initial single-env trainer"
+            )
+        return self

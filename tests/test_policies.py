@@ -13,6 +13,7 @@ from rl_core.models import (
     OpportunityKind,
     OrbitPass,
     Order,
+    Polygon,
     Priority,
     Rectangle,
     RewardConfig,
@@ -157,6 +158,16 @@ def build_competing_scenario(
     specs: Sequence[tuple[str, Priority, float, float]],
 ) -> Scenario:
     rectangle = Rectangle(min_lat=0.0, min_lon=0.0, max_lat=1.0, max_lon=1.0)
+    polygon = Polygon.model_validate(
+        {
+            "vertices": [
+                {"lat": 0.0, "lon": 0.0},
+                {"lat": 0.0, "lon": 1.0},
+                {"lat": 1.0, "lon": 1.0},
+                {"lat": 1.0, "lon": 0.0},
+            ]
+        }
+    )
     orders: list[Order] = []
     strips: list[Strip] = []
     opportunities: list[Opportunity] = []
@@ -179,7 +190,7 @@ def build_competing_scenario(
                 strip_id=strip_id,
                 order_id=order_id,
                 sequence=index,
-                geometry=rectangle,
+                geometry=polygon,
             )
         )
         opportunities.append(

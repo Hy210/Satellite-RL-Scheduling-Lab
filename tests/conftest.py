@@ -9,6 +9,7 @@ from rl_core.models import (
     OpportunityKind,
     OrbitPass,
     Order,
+    Polygon,
     Priority,
     Rectangle,
     RewardConfig,
@@ -40,7 +41,7 @@ def build_scenario(
             strip_id=f"strip-{index + 1}",
             order_id=order.order_id,
             sequence=index,
-            geometry=Rectangle(
+            geometry=_polygon_from_rectangle(
                 min_lat=0.0,
                 min_lon=index * 0.1,
                 max_lat=1.0,
@@ -60,6 +61,21 @@ def build_scenario(
         orders=[order],
         strips=strips,
         opportunities=list(opportunities or []),
+    )
+
+
+def _polygon_from_rectangle(
+    *, min_lat: float, min_lon: float, max_lat: float, max_lon: float
+) -> Polygon:
+    return Polygon.model_validate(
+        {
+            "vertices": [
+                {"lat": min_lat, "lon": min_lon},
+                {"lat": min_lat, "lon": max_lon},
+                {"lat": max_lat, "lon": max_lon},
+                {"lat": max_lat, "lon": min_lon},
+            ]
+        }
     )
 
 

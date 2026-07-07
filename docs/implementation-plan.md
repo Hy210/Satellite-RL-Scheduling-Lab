@@ -23,6 +23,7 @@
 0. 개발 기반
 1. 데이터 계약
 2. 가상 시나리오 생성
+2A. 가상 ground track 및 footprint 생성기 보완
 3. 시뮬레이션 코어
 4. 기준 정책
 5. Gymnasium 환경
@@ -120,6 +121,8 @@ Opportunity의 자세가 특정 state에서 허용되는지는 데이터 로드 
 - [x] 자세 및 주문 기간 제약에 맞지 않는 후보 제거
 - [x] 동일 seed 재현성 보장
 
+현재 완료된 생성기는 pass 시간 구간과 무작위 접근 구간으로 opportunity를 생성한다. 이 방식은 RL 환경 검증에는 충분했지만, strip이 궤도와 footprint 관점에서 왜 유효한지 지도에서 확인할 수 있는 근거 데이터가 부족하다. 실제 궤도 데이터가 들어오기 전까지는 아래 단계 2A를 통해 가상 ground track과 footprint 생성기를 보완한다.
+
 #### 단계적 시나리오 크기
 
 ```text
@@ -134,6 +137,36 @@ full   : 주문 100개, pass 30개
 - [x] 다른 seed에서는 다른 주문과 기회가 생성된다.
 - [x] 모든 opportunity가 유효한 order, strip 및 pass를 참조한다.
 - [x] 최대 strip 2,000개 제한을 검사한다.
+
+---
+
+### 단계 2A. 가상 ground track 및 footprint 생성기 보완
+
+이 단계는 실제 궤도 전파 데이터가 없는 현재 상태에서 opportunity의 공간적 근거를 만들기 위한 보완 단계다. 정밀 궤도 물리를 구현하는 것이 아니라, pass별 가상 궤적과 센서 footprint를 만들고 strip과의 교차로 access window를 생성해 지도에서 검수 가능하게 한다.
+
+#### 작업
+
+- [x] pass별 시간 샘플 간격 결정
+- [x] seed 기반 가상 ground track 생성
+- [x] 촬영 가능 폭 또는 footprint 근사 파라미터 정의
+- [x] 시간 샘플별 회전 footprint polygon 생성
+- [x] pass 진행 방향에 맞춘 strip polygon 생성
+- [x] footprint와 strip polygon 교차 판정
+- [x] 연속 교차 샘플을 access window로 병합
+- [x] access window에서 early/min_off_nadir/late opportunity 생성
+- [x] opportunity가 참조 access window에서 파생됐음을 추적
+- [x] pass, ground track, footprint, strip 및 opportunity를 지도에서 확인하는 임시 HTML 또는 개발용 뷰어 작성
+- [x] 실제 궤도 데이터 연결 시 교체할 입력 경계 문서화
+
+#### 완료 조건
+
+- [x] 같은 seed에서 ground track, footprint, access window 및 opportunity가 재현된다.
+- [x] 모든 opportunity가 footprint-strip 교차 근거를 가진다.
+- [x] 지도에서 선택한 pass의 ground track, footprint, strip 및 opportunity를 함께 확인할 수 있다.
+- [x] 공간적으로 교차하지 않는 strip에는 해당 pass의 opportunity가 생성되지 않는다.
+- [x] 기존 simulator, 기준 정책 및 Gym 환경이 새 opportunity 입력을 그대로 소비할 수 있다.
+
+임시 지도 뷰어는 `tools/scenario_viewer.html`로 추가했다. 브라우저에서 지도 타일 렌더링, pass별 ground track, 회전 footprint polygon, pass 진행 방향에 맞춘 strip polygon 및 opportunity 표시를 확인했다.
 
 ---
 
@@ -240,13 +273,13 @@ full   : 주문 100개, pass 30개
 
 #### 작업
 
-- [ ] Maskable PPO 연결
-- [ ] 학습 설정 모델
-- [ ] checkpoint 저장
-- [ ] 학습 및 평가 seed 분리
-- [ ] 주기적 고정 시나리오 평가
-- [ ] 학습 metric 기록
-- [ ] 모델 저장과 다시 불러오기
+- [x] Maskable PPO 연결
+- [x] 학습 설정 모델
+- [x] checkpoint 저장
+- [x] 학습 및 평가 seed 분리
+- [x] 주기적 고정 시나리오 평가
+- [x] 학습 metric 기록
+- [x] 모델 저장과 다시 불러오기
 
 #### 확장 순서
 
@@ -270,6 +303,8 @@ full   : 주문 100개, pass 30개
 - 저장한 모델을 다시 불러와 동일한 방식으로 평가할 수 있다.
 - tiny 시나리오에서 Random valid보다 일관되게 우수하다.
 - 평가 결과에 reward breakdown과 도메인 지표가 포함된다.
+
+현재 `rl_core/training.py`는 tiny smoke 학습, checkpoint, metric, 최종 모델 저장과 reload 평가를 지원한다. 다만 Random valid보다 일관되게 우수한지 확인하는 충분한 학습 실험은 아직 수행하지 않았으므로 단계 6 전체 완료로 보지 않는다.
 
 ---
 

@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scenario Ground Track Viewer</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    html,
+    body {
+      height: 100%;
+      margin: 0;
+      font-family: Arial, sans-serif;
+      color: #1f2937;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .sidebar {
+      border-right: 1px solid #d1d5db;
+      padding: 14px;
+      overflow: auto;
+      background: #f8fafc;
+    }
+
+    .field {
+      display: grid;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+
+    label {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: #475569;
+    }
+
+    select,
+    input {
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    .stats {
+      font-size: 13px;
+      line-height: 1.45;
+      margin-top: 14px;
+      white-space: pre-line;
+    }
+
+    #map {
+      height: 100vh;
+      width: 100%;
+    }
+
+    /*
+      file:// 환경에서 CDN stylesheet가 늦게 오거나 차단되면 Leaflet 타일이
+      일반 이미지처럼 문서 흐름에 배치된다. 핵심 배치 규칙은 뷰어 안에도
+      둬서 지도 컨테이너가 항상 정상 레이어로 동작하게 한다.
+    */
+    .leaflet-container {
+      overflow: hidden;
+      position: relative;
+      background: #ddd;
+      outline-offset: 1px;
+    }
+
+    .leaflet-pane,
+    .leaflet-tile,
+    .leaflet-marker-icon,
+    .leaflet-marker-shadow,
+    .leaflet-tile-container,
+    .leaflet-pane > svg,
+    .leaflet-pane > canvas,
+    .leaflet-zoom-box,
+    .leaflet-image-layer,
+    .leaflet-layer {
+      position: absolute;
+      left: 0;
+      top: 0;
+    }
+
+    .leaflet-tile,
+    .leaflet-marker-icon,
+    .leaflet-marker-shadow {
+      user-select: none;
+      -webkit-user-drag: none;
+    }
+
+    .leaflet-tile {
+      visibility: hidden;
+    }
+
+    .leaflet-tile-loaded {
+      visibility: inherit;
+    }
+
+    .leaflet-pane {
+      z-index: 400;
+    }
+
+    .leaflet-tile-pane {
+      z-index: 200;
+    }
+
+    .leaflet-overlay-pane {
+      z-index: 400;
+    }
+
+    .leaflet-marker-pane {
+      z-index: 600;
+    }
+
+    .leaflet-tooltip-pane {
+      z-index: 650;
+    }
+
+    .leaflet-popup-pane {
+      z-index: 700;
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="field">
+        <label for="fileInput">Scenario JSON</label>
+        <input id="fileInput" type="file" accept="application/json,.json">
+      </div>
+      <div class="field">
+        <label for="passSelect">Pass</label>
+        <select id="passSelect"></select>
+      </div>
+      <div class="field">
+        <label>
+          <input id="showFootprints" type="checkbox" checked>
+          Footprints
+        </label>
+        <label>
+          <input id="showAllStrips" type="checkbox">
+          All strips
+        </label>
+      </div>
+      <div id="stats" class="stats">Load a scenario JSON file.</div>
+    </aside>
+    <main id="map"></main>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const map = L.map("map", { worldCopyJump: false }).setView([0, 0], 2);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 10,
+      attribution: "&copy; OpenStreetMap contributors",
+    }).addTo(map);
+
+    const fileInput = document.getElementById("fileInput");
+    const passSelect = document.getElementById("passSelect");
+    const showFootprints = document.getElementById("showFootprints");
+    const showAllStrips = document.getElementById("showAllStrips");
+    const stats = document.getElementById("stats");
+    const layers = L.layerGroup().addTo(map);
+    let scenario = null;
+
+    fileInput.addEventListener("change", async () => {
+      const file = fileInput.files[0];
+      if (!file) {
+        return;
+      }
+      scenario = JSON.parse(await file.text());
+      passSelect.innerHTML = "";
+      for (const pass of scenario.passes) {
+        const option = document.createElement("option");
+        option.value = pass.pass_id;
+        option.textContent = `${pass.pass_id} (${Math.round(pass.start_time_sec)}s)`;
+        passSelect.appendChild(option);
+      }
+      render();
+    });
+
+    passSelect.addEventListener("change", render);
+    showFootprints.addEventListener("change", render);
+    showAllStrips.addEventListener("change", render);
+
+    function render() {
+      layers.clearLayers();
+      if (!scenario || !passSelect.value) {
+        return;
+      }
+
+      const passId = passSelect.value;
+      const footprints = scenario.footprint_samples.filter((item) => item.pass_id === passId);
+      const track = scenario.ground_track_points.filter((item) => item.pass_id === passId);
+      const windows = scenario.access_windows.filter((item) => item.pass_id === passId);
+      const windowStripIds = new Set(windows.map((item) => item.strip_id));
+      const strips = scenario.strips.filter(
+        (item) => showAllStrips.checked || windowStripIds.has(item.strip_id)
+      );
+      const opportunityIds = new Set(windows.flatMap((item) => item.opportunity_ids));
+      const opportunities = scenario.opportunities.filter((item) => opportunityIds.has(item.opportunity_id));
+      const bounds = [];
+
+      if (track.length > 1) {
+        for (const point of track) {
+          bounds.push([point.latitude_deg, point.longitude_deg]);
+        }
+        L.polyline(
+          track.map((point) => [point.latitude_deg, point.longitude_deg]),
+          { color: "#111827", weight: 2 }
+        ).addTo(layers);
+      }
+
+      if (showFootprints.checked) {
+        for (const footprint of footprints) {
+          addPolygon(footprint.geometry, {
+            color: "#0f766e",
+            weight: 1,
+            opacity: 0.25,
+            fillOpacity: 0.04,
+          }, footprint.footprint_id);
+        }
+      }
+
+      for (const strip of strips) {
+        const active = windowStripIds.has(strip.strip_id);
+        pushPolygonBounds(bounds, strip.geometry);
+        addPolygon(strip.geometry, {
+          color: active ? "#dc2626" : "#64748b",
+          weight: active ? 2 : 1,
+          fillOpacity: active ? 0.35 : 0.08,
+        }, strip.strip_id);
+      }
+
+      for (const opportunity of opportunities) {
+        const strip = scenario.strips.find((item) => item.strip_id === opportunity.strip_id);
+        if (!strip) {
+          continue;
+        }
+        const center = polygonCenter(strip.geometry);
+        bounds.push(center);
+        L.circleMarker(center, {
+          radius: 4,
+          color: "#f59e0b",
+          fillColor: "#f59e0b",
+          fillOpacity: 0.9,
+        })
+          .bindPopup([
+            opportunity.opportunity_id,
+            `time: ${opportunity.capture_time_sec.toFixed(1)}s`,
+            `roll: ${opportunity.required_roll_deg.toFixed(2)} deg`,
+            `tilt: ${opportunity.required_tilt_deg.toFixed(2)} deg`,
+          ].join("<br>"))
+          .addTo(layers);
+      }
+
+      stats.textContent = [
+        scenario.scenario_id,
+        `pass: ${passId}`,
+        `track points: ${track.length}`,
+        `footprints: ${footprints.length}`,
+        `access windows: ${windows.length}`,
+        `visible strips: ${strips.length}`,
+        `opportunities: ${opportunities.length}`,
+      ].join("\n");
+
+      setTimeout(() => {
+        map.invalidateSize();
+        if (bounds.length) {
+          map.fitBounds(bounds, { padding: [30, 30], maxZoom: 7 });
+        }
+      }, 0);
+    }
+
+    function addPolygon(geometry, style, popupText) {
+      L.polygon(geometry.vertices.map((vertex) => [vertex.lat, vertex.lon]), style)
+        .bindPopup(popupText)
+        .addTo(layers);
+    }
+
+    function polygonCenter(geometry) {
+      const total = geometry.vertices.reduce(
+        (acc, vertex) => [acc[0] + vertex.lat, acc[1] + vertex.lon],
+        [0, 0]
+      );
+      return [total[0] / geometry.vertices.length, total[1] / geometry.vertices.length];
+    }
+
+    function pushPolygonBounds(bounds, geometry) {
+      for (const vertex of geometry.vertices) {
+        bounds.push([vertex.lat, vertex.lon]);
+      }
+    }
+  </script>
+</body>
+</html>
