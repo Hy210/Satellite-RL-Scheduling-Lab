@@ -22,9 +22,9 @@ RL 관련 질문과 답변은 프로젝트 루트의 [AGENTS.md](../AGENTS.md)�
 | Reward와 Return | 학습 전 | - |
 | Policy와 Value Function | 학습 전 | - |
 | Exploration과 Exploitation | 학습 전 | - |
-| PPO와 Maskable PPO | 학습 중 | 2026-07-06 |
+| PPO와 Maskable PPO | 학습 중 | 2026-07-07 |
 | Reward Shaping | 학습 전 | - |
-| 학습 평가와 Baseline | 학습 전 | - |
+| 학습 평가와 Baseline | 학습 중 | 2026-07-07 |
 | 과적합과 일반화 | 학습 전 | - |
 
 상태는 필요에 따라 `학습 전`, `학습 중`, `기초 이해`, `복습 필요` 등으로 갱신한다. 이는 시험이나 숙련도를 판정하기 위한 값이 아니라 학습 흐름을 확인하기 위한 표시다.
@@ -36,8 +36,10 @@ RL 관련 질문과 답변은 프로젝트 루트의 [AGENTS.md](../AGENTS.md)�
 <!-- 예시: - [Episode와 Step의 차이](#episode와-step의-차이) -->
 
 - [초기 알고리즘으로 Maskable PPO를 사용하는 이유](#초기-알고리즘으로-maskable-ppo를-사용하는-이유)
+- [Stable-Baselines3와 sb3-contrib의 관계](#stable-baselines3와-sb3-contrib의-관계)
 - [학습 환경에는 의미 있는 선택이 필요하다](#학습-환경에는-의미-있는-선택이-필요하다)
 - [가변 문제를 고정 Observation으로 표현하는 방법](#가변-문제를-고정-observation으로-표현하는-방법)
+- [학습 Return과 평가 Return을 분리해서 보는 이유](#학습-return과-평가-return을-분리해서-보는-이유)
 
 ## 프로젝트 용어 대응표
 
@@ -57,6 +59,34 @@ RL 관련 질문과 답변은 프로젝트 루트의 [AGENTS.md](../AGENTS.md)�
 ## 학습 항목
 
 아직 개별 학습 항목이 기록되지 않았다. 이후 RL 관련 질문과 설명이 발생하면 이 아래에 주제별로 누적한다.
+
+## Stable-Baselines3와 sb3-contrib의 관계
+
+### 핵심 정의
+
+Stable-Baselines3(SB3)는 Python에서 자주 쓰는 강화학습 알고리즘 구현 라이브러리다. PPO, DQN, A2C, SAC처럼 널리 쓰이는 알고리즘과 학습 루프, 저장, 평가, callback 같은 공통 도구를 제공한다.
+
+sb3-contrib는 Stable-Baselines3의 확장 라이브러리다. SB3 본체에는 들어가지 않았지만 실험적이거나 추가 기능이 필요한 알고리즘을 제공하며, 이 프로젝트에서 쓰는 Maskable PPO가 여기에 포함된다.
+
+### 직관
+
+SB3를 기본 도구 상자라고 보면, sb3-contrib는 같은 규격을 따르는 추가 도구 상자다. 둘은 완전히 별개의 철학을 가진 라이브러리라기보다, 같은 생태계 안에서 본체와 확장 패키지의 관계에 가깝다.
+
+### 프로젝트에서의 적용
+
+이 프로젝트는 `sb3-contrib>=2.9,<3`를 의존성으로 사용한다. sb3-contrib가 Stable-Baselines3를 기반으로 동작하므로, Maskable PPO를 쓰기 위해 sb3-contrib를 설치하면 SB3 계열의 정책, rollout, 학습 인터페이스를 함께 사용하게 된다.
+
+프로젝트의 Gymnasium wrapper는 `Dict` observation, `Discrete(129)` action, `action_masks()`를 제공한다. Maskable PPO는 이 `action_masks()` 결과를 받아 현재 상태에서 실행 불가능한 촬영 후보의 선택 확률을 0으로 만든다.
+
+### 주의할 점
+
+- Stable-Baselines3는 강화학습 환경 자체를 대신 만들어 주지 않는다. 환경의 state, action, reward와 mask는 프로젝트 코드가 정확히 정의해야 한다.
+- sb3-contrib의 Maskable PPO는 실행 불가능한 행동을 거르는 데 도움을 주지만, 좋은 reward 설계나 일반화 성능을 자동으로 보장하지는 않는다.
+- 버전 호환성이 중요하다. 현재 프로젝트는 Gymnasium 1.3, Stable-Baselines3 2.9, sb3-contrib 2.9 조합을 기준으로 검증했다.
+
+### 학습 기록
+
+- 2026-07-07: Stable-Baselines3가 강화학습 알고리즘 라이브러리이고, sb3-contrib가 Maskable PPO 같은 확장 알고리즘을 제공하는 관계임을 정리했다.
 
 ## 초기 알고리즘으로 Maskable PPO를 사용하는 이유
 
@@ -257,3 +287,37 @@ Gym wrapper는 기존 simulator의 규칙을 다시 계산하지 않는다. simu
 
 - 2026-07-07: Dict observation, padding, presence mask와 action mask의 역할 차이를 Gymnasium wrapper 구현에 맞춰 정리했다.
 - 2026-07-06: action mask가 logits, 확률분포, rollout 및 PPO 업데이트에 적용되는 방식과 프로젝트 예시를 보강했다.
+
+## 학습 Return과 평가 Return을 분리해서 보는 이유
+
+### 핵심 정의
+
+학습 return은 정책이 학습 데이터를 모으는 과정에서 얻은 reward 누적값이고, 평가 return은 정해진 평가 조건에서 현재 정책을 따로 실행해 측정한 reward 누적값이다.
+
+### 직관
+
+학습 중의 행동은 탐색과 정책 업데이트의 영향을 받기 때문에 들쭉날쭉하다. 반면 평가는 같은 시나리오와 seed에서 현재 모델을 다시 실행해 보는 것이므로, 모델이 실제로 좋아졌는지 비교하기 더 쉽다.
+
+### 프로젝트에서의 적용
+
+단계 6 trainer는 학습 seed와 평가 seed를 분리한다. 학습 중 일정 timestep마다 tiny 시나리오를 평가하고, `data/runs/<run-id>/metrics/training-metrics.jsonl`에 평가 결과를 기록한다.
+
+평가 결과에는 총 return뿐 아니라 다음 도메인 지표를 함께 본다.
+
+- 기본 우선순위 점수
+- 각도 보너스
+- 미완료 패널티
+- 완료 strip 수
+- 완료 order 수
+
+이렇게 해야 단순히 reward 합계가 오른 것인지, 정말 더 가치 있는 촬영 스케줄을 만든 것인지 구분할 수 있다.
+
+### 주의할 점
+
+- 고정 tiny 시나리오에서 높은 평가 점수는 일반화 성능이 아니라 해당 시나리오에 대한 최적화 결과일 수 있다.
+- 평가 seed를 학습 seed와 분리해도 시나리오 자체가 같으면 완전한 일반화 평가는 아니다.
+- Random valid보다 나은지 판단할 때는 한 번의 실행보다 여러 seed와 충분한 학습 길이에서 일관성을 확인해야 한다.
+
+### 학습 기록
+
+- 2026-07-07: Maskable PPO trainer 구현 과정에서 학습 return과 고정 평가 return을 분리해 기록해야 하는 이유를 정리했다.

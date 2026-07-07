@@ -4,10 +4,12 @@ from rl_core.gym_env import SatelliteSchedulingEnv
 from rl_core.models import Scenario
 from rl_core.policies import evaluate_policy
 from rl_core.simulator import SatelliteSchedulingSimulator
+from rl_core.training import train_maskable_ppo
 
 __all__ = [
     "SatelliteSchedulingEnv",
     "SatelliteSchedulingSimulator",
     "Scenario",
     "evaluate_policy",
+    "train_maskable_ppo",
 ]
