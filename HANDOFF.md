@@ -2,13 +2,13 @@
 
 ## 현재 상태
 
-- 마지막 갱신일: 2026-07-07
+- 마지막 갱신일: 2026-07-08
 - 작업 디렉터리: `D:\HY\01. Developer\Project\NSICPS_RL_Scheduling`
-- 프로젝트 상태: 구현 계획 단계 0~5 완료, 단계 2A 완료, 단계 6 일부 구현
-- 현재 구현 단계: 단계 6 Maskable PPO 학습 성능 검증 전
+- 프로젝트 상태: 구현 계획 단계 0~6 완료, 단계 2A 완료
+- 현재 구현 단계: 단계 7 결과 및 재생 로그 구현 전
 - 진행 중 작업: 없음
 - Blocker: 없음
-- Git 상태: 작업 트리에 단계 6 구현, 단계 2A 생성기 구현, 임시 HTML 뷰어 및 문서 변경 있음. `docs/rl-study-notes.md`는 이번 작업 전부터 수정된 상태로 남아 있음
+- Git 상태: 작업 트리에 단계 6 benchmark CLI, 성능 검증 문서 및 RL 학습 노트 갱신 변경 있음
 - Git 원격: `https://github.com/Hy210/Satellite-RL-Scheduling-Lab.git`
 
 ## 현재 목표
@@ -59,6 +59,9 @@
 - `rl_core/training.py`에 Maskable PPO 학습, checkpoint, 주기적 고정 시나리오 평가, metric 기록, 최종 모델 저장 및 reload 평가 구현
 - 학습 산출물 경로를 `data/runs/<run-id>/` 구조로 확정
 - 단계 6 smoke 테스트 추가
+- `tools/stage6_benchmark.py` 반복 seed 성능 검증 CLI 추가
+- `synthetic-tiny-20260707`에서 Maskable PPO가 Random valid 대비 단계 6 통과 기준을 만족함을 검증
+- 단계 6 검증이 Maskable PPO와 Random valid 기준선 비교라는 점과 tiny 검증의 한계를 개인 RL 학습 노트에 기록
 - `docs/rl-scheduling-design.md`, `docs/data-format.md`, `docs/web-application-design.md`, `docs/implementation-plan.md`, `docs/project-knowledge.md`에 가상 ground track, footprint, access window 및 지도 검수 흐름 반영
 
 ## 주요 파일
@@ -75,6 +78,7 @@
 - `rl_core/models.py`: Pydantic 데이터 계약
 - `rl_core/generator.py`: seed 기반 가상 시나리오 생성기
 - `tools/scenario_viewer.html`: 시나리오 JSON을 불러와 pass별 ground track, footprint, strip 및 opportunity를 확인하는 임시 지도 뷰어
+- `tools/stage6_benchmark.py`: 단계 6 Maskable PPO와 Random valid 반복 seed 성능 비교 CLI
 - `rl_core/simulator.py`: 결정론적 이벤트 시뮬레이터
 - `rl_core/policies.py`: 기준 정책과 공통 평가기
 - `rl_core/gym_env.py`: Gymnasium 및 Maskable PPO 연결 wrapper
@@ -99,6 +103,17 @@
 - 단계 2A 변경 후 Pytest: 66개 테스트 통과
 - 단계 2A 변경 후 Ruff lint: 통과
 - 단계 2A 변경 후 Mypy strict 검사: 통과
+- 2026-07-08 작업 시작 전 `git status --short --branch`: `main...origin/main`, 작업 트리 변경 없음
+- `.venv\Scripts\python.exe -m pytest tests/test_training.py tests/test_policies.py`: 25개 테스트 통과
+- `.venv\Scripts\python.exe tools/stage6_benchmark.py`: `stage6_passed=true`
+  - 산출물: `data/runs/stage6-benchmark-20260708-224725/summary.json`
+  - Maskable PPO median return: `5.326453530248241`
+  - Random valid median return: `5.325396139404043`
+  - 두 정책 모두 median completed strips: `9`
+- 대표 PPO run의 `final-evaluation.json`에 reward breakdown과 step별 `decisions` 포함 확인
+- `.venv\Scripts\python.exe -m ruff check .`: 통과
+- `.venv\Scripts\python.exe -m mypy`: 통과
+- `git status --short --ignored`: `data/runs/`는 ignored로 표시되어 학습 산출물이 Git 추적 대상에서 제외됨을 확인
 
 ## 알려진 문제와 미확정 사항
 
@@ -108,14 +123,14 @@
 - `tools/scenario_viewer.html`은 추가했고, 첫 수동 확인에서 지도 컨테이너 렌더링 문제가 발견되어 CSS와 Leaflet size/bounds 처리를 수정했다. 이후 strip/footprint를 pass 진행 방향에 맞춘 polygon으로 변경했고, 브라우저에서 지도 렌더링과 기울기 정합성을 확인했다.
 - 후보 128개 제한은 full 시나리오 생성 후 분포와 잘림 영향을 검증해야 한다.
 - 10초 opportunity 양자화는 가상 시나리오용 가정이므로 실제 궤도 데이터 연결 시 재검토해야 한다.
-- 2,000개 strip을 평탄화하는 기본 MultiInputPolicy는 계산량이 클 수 있어 실제 학습 성능을 측정해야 한다.
-- Maskable PPO smoke 학습은 저장과 reload 평가만 검증했다. Random valid보다 일관되게 우수한지는 아직 충분한 학습 길이와 반복 seed로 확인하지 않았다.
+- 2,000개 strip을 평탄화하는 기본 MultiInputPolicy는 full 규모에서 계산량이 클 수 있어 small/full 확장 시 성능을 다시 측정해야 한다.
+- 단계 6 엄격 검증에서 tiny 시나리오는 통과했지만 개선 폭은 작고 완료 strip/order 수는 Random valid와 같았다. small/full 시나리오와 greedy 정책 비교에서 성능 의미를 다시 확인해야 한다.
 
 ## 다음 세션의 첫 작업
 
-[구현 계획의 단계 6](docs/implementation-plan.md#단계-6-maskable-ppo-학습)의 성능 검증으로 돌아간다.
+[구현 계획의 단계 7](docs/implementation-plan.md#단계-7-결과-및-재생-로그)로 이동한다.
 
-tiny 시나리오에서 `train_maskable_ppo()` 학습 길이와 seed를 늘려 Random valid 기준선보다 일관되게 우수한지 비교한다. 평가에는 총 return뿐 아니라 reward breakdown, 완료 strip/order 수, skip 반복 또는 특정 후보 고착 여부를 함께 확인한다.
+저장된 평가 episode를 재생할 수 있도록 episode 요약, step별 state/action 후보/action mask 사유/reward breakdown 로그 형식을 설계하고 구현한다. 단계 6의 `final-evaluation.json`과 기준 정책 `DecisionLog`를 재사용할 수 있는 공통 로그 계약부터 정한다.
 
 ## 관련 문서
 

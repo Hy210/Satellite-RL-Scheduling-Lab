@@ -280,6 +280,7 @@ full   : 주문 100개, pass 30개
 - [x] 주기적 고정 시나리오 평가
 - [x] 학습 metric 기록
 - [x] 모델 저장과 다시 불러오기
+- [x] 반복 seed 기반 Random valid 대비 성능 검증 CLI
 
 #### 확장 순서
 
@@ -300,11 +301,13 @@ full   : 주문 100개, pass 30개
 
 #### 완료 조건
 
-- 저장한 모델을 다시 불러와 동일한 방식으로 평가할 수 있다.
-- tiny 시나리오에서 Random valid보다 일관되게 우수하다.
-- 평가 결과에 reward breakdown과 도메인 지표가 포함된다.
+- [x] 저장한 모델을 다시 불러와 동일한 방식으로 평가할 수 있다.
+- [x] tiny 시나리오에서 Random valid보다 일관되게 우수하다.
+- [x] 평가 결과에 reward breakdown과 도메인 지표가 포함된다.
 
-현재 `rl_core/training.py`는 tiny smoke 학습, checkpoint, metric, 최종 모델 저장과 reload 평가를 지원한다. 다만 Random valid보다 일관되게 우수한지 확인하는 충분한 학습 실험은 아직 수행하지 않았으므로 단계 6 전체 완료로 보지 않는다.
+`tools/stage6_benchmark.py`는 `synthetic-tiny-20260707`에서 Maskable PPO 5개 학습 seed와 Random valid 5개 평가 seed를 비교한다. 2026-07-08 엄격 검증 결과 `stage6_passed=true`였으며, PPO median return은 `5.326453530248241`, Random valid median return은 `5.325396139404043`이었다. 두 정책 모두 median completed strips는 `9`였고, skip 비율과 non-skip action slot 집중도 기준도 통과했다.
+
+이 검증으로 단계 6은 완료로 본다. 다만 tiny 시나리오는 작아서 개선 폭이 매우 작으므로, small/full 확장과 greedy 정책 비교는 이후 단계의 성능 분석 또는 튜닝 작업으로 다룬다.
 
 ---
 

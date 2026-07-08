@@ -250,6 +250,8 @@ data/runs/<run-id>/
 
 `training-metrics.jsonl`의 각 줄은 특정 timestep에서의 고정 시나리오 평가 결과를 담는다. `final-evaluation.json`은 최종 모델의 reward breakdown, 완료 strip 및 주문 수, step별 선택 요약을 포함한다.
 
+단계 6 성능 검증 CLI는 여러 학습 run을 하나로 묶어 `data/runs/stage6-benchmark-<timestamp>/summary.json`을 저장한다. 이 파일은 benchmark 설정, Random valid 반복 평가 결과, Maskable PPO 반복 학습 결과, 평균/중앙값 요약과 단계 6 통과 판정을 포함한다. 개별 PPO run은 같은 디렉터리의 `ppo-runs/<run-id>/` 아래에 위 artifact 구조로 저장한다.
+
 ## 8. Gymnasium 관측 및 행동 계약
 
 `SatelliteSchedulingEnv`는 모든 값을 `numpy.float32` 고정 배열로 반환한다.

@@ -259,6 +259,17 @@ Maskable PPO 학습은 학습 중 rollout return만으로 판단하지 않고, �
 
 현재 구현은 단일 Gym 환경에서 시작하므로 `batch_size <= n_steps`를 요구한다. 병렬 환경 또는 더 큰 rollout으로 확장할 때 이 제약과 하이퍼파라미터 기본값은 다시 검토한다.
 
+### 6.8 단계 6 성능 검증 관찰
+
+**상태:** 관찰
+**마지막 갱신:** 2026-07-08
+
+`synthetic-tiny-20260707`에서 Maskable PPO 5개 학습 seed와 Random valid 5개 평가 seed를 비교했다. Maskable PPO는 50,000 timestep, `n_steps=256`, `batch_size=64`, `n_epochs=5` 설정으로 학습했고, 단계 6 통과 기준을 모두 만족했다.
+
+PPO median return은 `5.326453530248241`, Random valid median return은 `5.325396139404043`으로 PPO가 근소하게 높았다. 두 정책 모두 median completed strips는 `9`였고, PPO의 median skip ratio는 `0.1`, non-skip action concentration은 약 `0.556`으로 skip 반복이나 단일 action slot 고착은 관찰되지 않았다.
+
+이 결과는 tiny 시나리오에서 저장, 평가, action mask 및 반복 seed 검증 파이프라인이 작동하고 Random valid 기준선을 넘었다는 근거다. 다만 문제 규모가 작아 두 정책이 같은 수의 strip/order를 완료했고 차이는 주로 angle bonus에서 발생했다. 따라서 이 결과를 일반적인 스케줄링 성능 향상으로 확대 해석하지 않고, small/full 시나리오와 greedy 기준 정책 비교에서 다시 검증해야 한다.
+
 ## 7. 용어집
 
 | 용어 | 프로젝트에서의 의미 |
@@ -287,9 +298,11 @@ Maskable PPO 학습은 학습 중 rollout return만으로 판단하지 않고, �
 | 구름과 영상 품질 | 검토 필요 | strip별 품질과 불확실성을 관측 및 보상에 반영하는 방법 필요 |
 | 일반화 평가 | 검토 필요 | 여러 시나리오 학습 시 훈련/검증/평가 seed 분리 필요 |
 | 후보 128개 제한 | 검토 필요 | 실제 시나리오에서 동시 후보 분포와 잘림 영향 측정 필요 |
+| tiny 성능 개선 폭 | 관찰 | 단계 6에서는 Random valid보다 근소하게 높았지만 완료 strip/order 수가 같아 larger scenario에서 재검증 필요 |
 
 ## 9. 변경 기록
 
+- 2026-07-08: 단계 6 Maskable PPO 반복 seed 성능 검증 결과와 tiny 시나리오 해석상 주의점을 기록했다.
 - 2026-07-07: Maskable PPO 학습 산출물 구조와 학습/평가 seed 분리의 의미를 기록했다.
 - 2026-07-07: strip과 footprint를 pass 진행 방향에 맞춘 polygon으로 바꾸고 pitch 0 해석을 기록했다.
 - 2026-07-07: 가상 ground track, footprint, access window 생성기와 opportunity 근거 추적 구현 결과를 기록했다.

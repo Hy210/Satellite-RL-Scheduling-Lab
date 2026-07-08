@@ -436,7 +436,7 @@ optimality_gap = (optimal_score - rl_score) / optimal_score
 
 구현된 초기 trainer는 `MaskablePPOTrainingConfig`로 학습 seed와 평가 seed를 분리한다. 학습 중에는 일정 timestep마다 같은 고정 시나리오를 평가해 `training-metrics.jsonl`에 기록하고, checkpoint와 최종 모델을 `data/runs/<run-id>/` 아래에 저장한다.
 
-단계 6의 초기 검증은 tiny 시나리오에서 저장한 모델을 다시 불러와 동일한 방식으로 평가할 수 있는지 확인하는 데 초점을 둔다. Random valid보다 일관되게 우수한지 확인하려면 별도의 충분한 학습 길이와 반복 seed 비교가 필요하다.
+단계 6 검증은 tiny 시나리오에서 저장한 모델을 다시 불러와 동일한 방식으로 평가할 수 있는지 확인하고, 별도의 반복 seed benchmark로 Random valid보다 일관되게 우수한지 비교한다. 2026-07-08 `synthetic-tiny-20260707` 엄격 검증에서는 Maskable PPO가 Random valid median return을 근소하게 넘었고 skip 반복이나 특정 action slot 고착 기준도 통과했다. 다만 tiny 문제에서는 완료 strip/order 수가 같았으므로 small/full 시나리오에서 성능 의미를 다시 검토한다.
 
 ## 14. 초기 범위에서 제외하는 기능
 
