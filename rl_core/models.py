@@ -509,6 +509,115 @@ class EvaluationRun(StrictModel):
     error_message: str | None = None
 
 
+class ReplayState(StrictModel):
+    """재생 로그의 한 시점에서 화면과 분석에 필요한 상태 요약이다."""
+
+    time_sec: float
+    roll_deg: float
+    tilt_deg: float
+    completed_strips: int
+    completed_orders: int
+
+
+class ReplayCandidate(StrictModel):
+    """선택 당시 후보 action과 action mask 판정 사유를 함께 저장한다."""
+
+    slot: int = Field(ge=1)
+    opportunity_id: str
+    order_id: str
+    strip_id: str
+    pass_id: str
+    capture_time_sec: float
+    required_roll_deg: float
+    required_tilt_deg: float
+    valid: bool
+    mask_reasons: list[str] = Field(default_factory=list)
+
+
+class ReplayRewardBreakdown(StrictModel):
+    """재생 step의 reward를 구성 요소별로 복원하기 위한 값이다."""
+
+    strip_base: float = 0.0
+    angle_bonus: float = 0.0
+    missed_penalty: float = 0.0
+    total: float = 0.0
+
+
+class ReplayStep(StrictModel):
+    """episode 재생에서 한 번의 선택과 그 전후 상태를 나타낸다."""
+
+    step_index: int = Field(ge=0)
+    state_before: ReplayState
+    candidates: list[ReplayCandidate] = Field(default_factory=list)
+    action: int = Field(ge=0)
+    selected_opportunity_id: str | None = None
+    expired_order_ids: list[str] = Field(default_factory=list)
+    reward: float
+    reward_breakdown: ReplayRewardBreakdown
+    cumulative_return: float
+    state_after: ReplayState
+
+
+class ReplayCapture(StrictModel):
+    """최종 촬영 스케줄을 빠르게 표시하기 위한 촬영 action 요약이다."""
+
+    step_index: int = Field(ge=0)
+    opportunity_id: str
+    order_id: str
+    strip_id: str
+    pass_id: str
+    capture_time_sec: float
+    roll_deg: float
+    tilt_deg: float
+    reward: float
+
+
+class EpisodeReplay(StrictModel):
+    """저장된 로그만으로 평가 episode를 재생하기 위한 공통 결과 형식이다."""
+
+    policy_name: str
+    scenario_id: str
+    seed: int
+    steps: list[ReplayStep] = Field(default_factory=list)
+    schedule: list[ReplayCapture] = Field(default_factory=list)
+    total_return: float
+    completed_strips: int
+    completed_orders: int
+
+
+class PolicyComparisonEntry(StrictModel):
+    """동일 시나리오에서 정책 하나의 성능과 replay 위치를 비교하기 위한 요약이다."""
+
+    policy_name: str
+    scenario_id: str
+    seed: int
+    total_return: float
+    priority_score: float
+    angle_bonus: float
+    missed_penalty: float
+    completed_strips: int
+    completed_orders: int
+    captures: int
+    steps: int
+    replay_path: str | None = None
+
+
+class PolicyComparison(StrictModel):
+    """여러 정책의 평가 결과를 한 파일에서 비교하기 위한 artifact 계약이다."""
+
+    scenario_id: str
+    entries: list[PolicyComparisonEntry] = Field(min_length=1)
+    best_policy_name: str
+
+    @model_validator(mode="after")
+    def validate_entries(self) -> Self:
+        if any(entry.scenario_id != self.scenario_id for entry in self.entries):
+            raise ValueError("all policy comparison entries must share scenario_id")
+        if self.best_policy_name not in {entry.policy_name for entry in self.entries}:
+            raise ValueError("best_policy_name must reference an entry")
+        return self
+
+
 class MaskablePPOTrainingConfig(StrictModel):
     """Maskable PPO 학습을 재현하기 위한 하이퍼파라미터와 저장 설정이다."""
 

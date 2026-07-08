@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from rl_core.generator import generate_scenario
 from rl_core.models import MaskablePPOTrainingConfig, RunStatus
+from rl_core.replay import load_episode_replay
 from rl_core.training import evaluate_trained_policy, load_maskable_ppo_model, train_maskable_ppo
 
 
@@ -38,6 +39,19 @@ def test_maskable_ppo_training_saves_reloadable_artifacts(tmp_path: Path) -> Non
     assert artifacts.checkpoints
     assert all(path.exists() for path in artifacts.checkpoints)
     assert artifacts.metrics_path.exists()
+    assert artifacts.replay_path.exists()
+    assert load_episode_replay(artifacts.replay_path).total_return == pytest.approx(
+        artifacts.final_evaluation.total_return
+    )
+    final_evaluation = json.loads(
+        (artifacts.run_directory / "metrics" / "final-evaluation.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert final_evaluation["replay"]["steps"]
+    assert final_evaluation["replay"]["total_return"] == pytest.approx(
+        artifacts.final_evaluation.total_return
+    )
     assert reloaded_evaluation.total_return == pytest.approx(
         artifacts.final_evaluation.total_return
     )

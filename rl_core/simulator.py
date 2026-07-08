@@ -227,6 +227,11 @@ class SatelliteSchedulingSimulator:
             raise ValueError("slot does not reference a current opportunity")
         return candidates[slot - 1]
 
+    def opportunity_by_id(self, opportunity_id: str) -> Opportunity:
+        """로그와 재생 단계에서 ID만 남은 촬영 기회를 다시 조회한다."""
+
+        return self._opportunities[opportunity_id]
+
     def order_for(self, opportunity: Opportunity) -> Order:
         """정책이 우선순위와 마감 정보를 비교할 수 있도록 소유 주문을 반환한다."""
 

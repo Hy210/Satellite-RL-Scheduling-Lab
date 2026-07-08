@@ -270,6 +270,17 @@ PPO median return은 `5.326453530248241`, Random valid median return은 `5.32539
 
 이 결과는 tiny 시나리오에서 저장, 평가, action mask 및 반복 seed 검증 파이프라인이 작동하고 Random valid 기준선을 넘었다는 근거다. 다만 문제 규모가 작아 두 정책이 같은 수의 strip/order를 완료했고 차이는 주로 angle bonus에서 발생했다. 따라서 이 결과를 일반적인 스케줄링 성능 향상으로 확대 해석하지 않고, small/full 시나리오와 greedy 기준 정책 비교에서 다시 검증해야 한다.
 
+### 6.9 Episode replay 로그의 역할
+
+**상태:** 확정
+**마지막 갱신:** 2026-07-08
+
+평가 episode 재생은 사후에 simulator 규칙을 다시 실행해 추정하지 않고, 선택 당시의 state, 후보, action mask 사유, 선택 action, reward breakdown 및 선택 후 state를 `EpisodeReplay`로 저장한다. 이렇게 해야 나중에 웹 화면이나 분석 도구가 정책이 실제로 본 후보와 마스킹 사유를 그대로 확인할 수 있다.
+
+기준 정책과 Maskable PPO 평가는 같은 replay 계약을 사용한다. 따라서 정책 비교 화면은 서로 다른 정책 결과를 같은 step 로그 구조로 읽을 수 있고, 보상 합계와 누적 return 일치도 파일만으로 검증할 수 있다.
+
+`PolicyComparison`은 같은 시나리오의 여러 replay를 요약 지표와 함께 묶는다. 최고 정책은 총 return을 우선으로 고르고, 동률일 때 완료 주문 수, 완료 strip 수, 촬영 수를 차례로 비교한다. 이 기준은 화면 정렬과 빠른 요약을 위한 artifact 규칙이며, 도메인 최적성 보장을 의미하지 않는다.
+
 ## 7. 용어집
 
 | 용어 | 프로젝트에서의 의미 |
@@ -302,6 +313,7 @@ PPO median return은 `5.326453530248241`, Random valid median return은 `5.32539
 
 ## 9. 변경 기록
 
+- 2026-07-08: 기준 정책과 Maskable PPO 평가가 공유하는 `EpisodeReplay` 로그 계약과 `PolicyComparison` 비교 artifact를 기록했다.
 - 2026-07-08: 단계 6 Maskable PPO 반복 seed 성능 검증 결과와 tiny 시나리오 해석상 주의점을 기록했다.
 - 2026-07-07: Maskable PPO 학습 산출물 구조와 학습/평가 seed 분리의 의미를 기록했다.
 - 2026-07-07: strip과 footprint를 pass 진행 방향에 맞춘 polygon으로 바꾸고 pitch 0 해석을 기록했다.

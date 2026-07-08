@@ -14,7 +14,23 @@ from sb3_contrib.common.maskable.utils import get_action_masks
 from stable_baselines3.common.callbacks import BaseCallback
 
 from rl_core.gym_env import SatelliteSchedulingEnv
-from rl_core.models import MaskablePPOTrainingConfig, RunStatus, Scenario, TrainingRun
+from rl_core.models import (
+    EpisodeReplay,
+    MaskablePPOTrainingConfig,
+    ReplayCapture,
+    ReplayStep,
+    RunStatus,
+    Scenario,
+    TrainingRun,
+)
+from rl_core.replay import (
+    episode_replay,
+    replay_candidates,
+    replay_capture,
+    replay_step,
+    save_episode_replay,
+)
+from rl_core.simulator import RewardBreakdown
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +61,7 @@ class TrainedPolicyEvaluation:
     completed_strips: int
     completed_orders: int
     decisions: tuple[TrainedPolicyDecision, ...]
+    replay: EpisodeReplay
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +72,7 @@ class TrainingArtifacts:
     run_directory: Path
     final_model_path: Path
     metrics_path: Path
+    replay_path: Path
     checkpoints: tuple[Path, ...]
     final_evaluation: TrainedPolicyEvaluation
 
@@ -175,6 +193,8 @@ def train_maskable_ppo(
         metrics_dir / "final-evaluation.json",
         _evaluation_payload(final_evaluation, include_decisions=True),
     )
+    replay_path = metrics_dir / "replay.json"
+    save_episode_replay(replay_path, final_evaluation.replay)
 
     completed_run = run.model_copy(update={"status": RunStatus.COMPLETED})
     _write_json(run_directory / "run.json", completed_run.model_dump(mode="json"))
@@ -184,6 +204,7 @@ def train_maskable_ppo(
         run_directory=run_directory,
         final_model_path=final_model_path,
         metrics_path=metrics_path,
+        replay_path=replay_path,
         checkpoints=tuple(callback.checkpoints),
         final_evaluation=final_evaluation,
     )
@@ -208,12 +229,16 @@ def evaluate_trained_policy(
     env = SatelliteSchedulingEnv(scenario)
     observation, info = env.reset(seed=seed)
     decisions: list[TrainedPolicyDecision] = []
+    replay_steps: list[ReplayStep] = []
+    schedule: list[ReplayCapture] = []
     captures = 0
     priority_score = 0.0
     angle_bonus = 0.0
     missed_penalty = 0.0
 
     for step_index in range(max_steps):
+        observation_before = env.simulator.observe()
+        replay_candidates_before = replay_candidates(env.simulator, observation_before)
         masks = get_action_masks(env)
         raw_action, _ = model.predict(
             observation,
@@ -227,17 +252,44 @@ def evaluate_trained_policy(
         time_sec = float(info.get("current_time_sec", env.simulator.current_time_sec))
         observation, reward, terminated, truncated, info = env.step(action)
         breakdown = cast(dict[str, float], info["reward_breakdown"])
+        reward_breakdown = RewardBreakdown(
+            strip_base=breakdown["strip_base"],
+            angle_bonus=breakdown["angle_bonus"],
+            missed_penalty=breakdown["missed_penalty"],
+        )
+        selected_opportunity_id = cast(str | None, info["selected_opportunity_id"])
+        replay_steps.append(
+            replay_step(
+                step_index=step_index,
+                simulator=env.simulator,
+                observation_before=observation_before,
+                candidates_before=replay_candidates_before,
+                action=action,
+                selected_opportunity_id=selected_opportunity_id,
+                expired_order_ids=tuple(cast(tuple[str, ...], info["expired_order_ids"])),
+                breakdown=reward_breakdown,
+                observation_after=env.simulator.observe(),
+            )
+        )
         priority_score += breakdown["strip_base"]
         angle_bonus += breakdown["angle_bonus"]
         missed_penalty += breakdown["missed_penalty"]
-        if info["selected_opportunity_id"] is not None:
+        if selected_opportunity_id is not None:
             captures += 1
+            schedule.append(
+                replay_capture(
+                    step_index=step_index,
+                    simulator=env.simulator,
+                    opportunity_id=selected_opportunity_id,
+                    reward=float(reward),
+                )
+            )
         decisions.append(
             TrainedPolicyDecision(
                 step_index=step_index,
                 time_sec=time_sec,
                 action=action,
-                opportunity_id=cast(str | None, info["selected_opportunity_id"]),
+                opportunity_id=selected_opportunity_id,
                 reward=float(reward),
                 cumulative_return=float(info["cumulative_return"]),
             )
@@ -247,6 +299,13 @@ def evaluate_trained_policy(
     else:
         raise RuntimeError(f"trained policy evaluation exceeded max_steps={max_steps}")
 
+    replay = episode_replay(
+        policy_name="maskable_ppo",
+        scenario_id=scenario.scenario_id,
+        seed=seed,
+        steps=replay_steps,
+        schedule=schedule,
+    )
     return TrainedPolicyEvaluation(
         policy_name="maskable_ppo",
         scenario_id=scenario.scenario_id,
@@ -260,6 +319,7 @@ def evaluate_trained_policy(
         completed_strips=int(info["completed_strip_count"]),
         completed_orders=int(info["completed_order_count"]),
         decisions=tuple(decisions),
+        replay=replay,
     )
 
 
@@ -284,6 +344,7 @@ def _evaluation_payload(
     include_decisions: bool,
 ) -> dict[str, Any]:
     payload = asdict(evaluation)
+    payload["replay"] = evaluation.replay.model_dump(mode="json")
     if not include_decisions:
         payload.pop("decisions")
     else:

@@ -8,7 +8,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import ClassVar
 
-from rl_core.models import Opportunity, Scenario
+from rl_core.models import EpisodeReplay, Opportunity, ReplayCapture, ReplayStep, Scenario
+from rl_core.replay import episode_replay, replay_candidates, replay_capture, replay_step
 from rl_core.simulator import SatelliteSchedulingSimulator, SimulationObservation
 
 
@@ -42,6 +43,7 @@ class EvaluationResult:
     completed_orders: int
     average_off_nadir_deg: float
     decisions: tuple[DecisionLog, ...]
+    replay: EpisodeReplay
 
 
 class BaselinePolicy(ABC):
@@ -165,6 +167,8 @@ def evaluate_policy(
     simulator = SatelliteSchedulingSimulator(scenario)
     rng = random.Random(seed)
     decisions: list[DecisionLog] = []
+    replay_steps: list[ReplayStep] = []
+    schedule: list[ReplayCapture] = []
     capture_count = 0
     priority_score = 0.0
     angle_bonus = 0.0
@@ -175,15 +179,37 @@ def evaluate_policy(
         if simulator.terminated:
             break
         observation = simulator.observe()
+        replay_candidates_before = replay_candidates(simulator, observation)
         action = policy.select_action(simulator, observation, rng)
         if not 0 <= action < len(observation.action_mask) or not observation.action_mask[action]:
             raise ValueError(f"policy {policy.name} selected masked action {action}")
 
         selected_opportunity = simulator.opportunity_for_slot(action) if action else None
         result = simulator.step(action)
+        replay_steps.append(
+            replay_step(
+                step_index=step_index,
+                simulator=simulator,
+                observation_before=observation,
+                candidates_before=replay_candidates_before,
+                action=action,
+                selected_opportunity_id=result.selected_opportunity_id,
+                expired_order_ids=result.expired_order_ids,
+                breakdown=result.breakdown,
+                observation_after=result.observation,
+            )
+        )
         if selected_opportunity is not None:
             capture_count += 1
             total_off_nadir += selected_opportunity.off_nadir_deg
+            schedule.append(
+                replay_capture(
+                    step_index=step_index,
+                    simulator=simulator,
+                    opportunity_id=selected_opportunity.opportunity_id,
+                    reward=result.reward,
+                )
+            )
         priority_score += result.breakdown.strip_base
         angle_bonus += result.breakdown.angle_bonus
         missed_penalty += result.breakdown.missed_penalty
@@ -202,6 +228,13 @@ def evaluate_policy(
         raise RuntimeError(f"policy evaluation exceeded max_steps={max_steps}")
 
     final_observation = simulator.observe()
+    replay = episode_replay(
+        policy_name=policy.name,
+        scenario_id=scenario.scenario_id,
+        seed=seed,
+        steps=replay_steps,
+        schedule=schedule,
+    )
     return EvaluationResult(
         policy_name=policy.name,
         scenario_id=scenario.scenario_id,
@@ -216,6 +249,7 @@ def evaluate_policy(
         completed_orders=final_observation.completed_order_count,
         average_off_nadir_deg=(total_off_nadir / capture_count if capture_count else 0.0),
         decisions=tuple(decisions),
+        replay=replay,
     )
 
 

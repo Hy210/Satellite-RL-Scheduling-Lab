@@ -243,14 +243,44 @@ data/runs/<run-id>/
 |   +-- checkpoint-<timesteps>.zip
 |-- metrics/
 |   |-- training-metrics.jsonl
-|   +-- final-evaluation.json
+|   |-- final-evaluation.json
+|   +-- replay.json
 +-- model/
     +-- final-model.zip
 ```
 
-`training-metrics.jsonl`의 각 줄은 특정 timestep에서의 고정 시나리오 평가 결과를 담는다. `final-evaluation.json`은 최종 모델의 reward breakdown, 완료 strip 및 주문 수, step별 선택 요약을 포함한다.
+`training-metrics.jsonl`의 각 줄은 특정 timestep에서의 고정 시나리오 평가 결과를 담는다. `final-evaluation.json`은 최종 모델의 reward breakdown, 완료 strip 및 주문 수, step별 선택 요약과 replay를 포함한다. `replay.json`은 같은 replay만 별도 저장한 파일이다.
 
 단계 6 성능 검증 CLI는 여러 학습 run을 하나로 묶어 `data/runs/stage6-benchmark-<timestamp>/summary.json`을 저장한다. 이 파일은 benchmark 설정, Random valid 반복 평가 결과, Maskable PPO 반복 학습 결과, 평균/중앙값 요약과 단계 6 통과 판정을 포함한다. 개별 PPO run은 같은 디렉터리의 `ppo-runs/<run-id>/` 아래에 위 artifact 구조로 저장한다.
+
+### EpisodeReplay
+
+평가 episode의 재생 로그는 `EpisodeReplay` 형식으로 저장한다. 같은 형식은 기준 정책 평가와 Maskable PPO 평가가 함께 사용한다.
+
+- `policy_name`, `scenario_id`, `seed`
+- `steps[]`: step별 재생 로그
+- `schedule[]`: 최종 촬영 스케줄 요약
+- `total_return`, `completed_strips`, `completed_orders`
+
+`steps[]`의 각 항목은 다음 값을 가진다.
+
+- `step_index`
+- `state_before`, `state_after`: 선택 전후 시각, roll, tilt, 완료 strip/order 수
+- `candidates[]`: 선택 당시 후보 slot, opportunity/order/strip/pass ID, 촬영 시각, 요구 자세, valid 여부와 `mask_reasons[]`
+- `action`, `selected_opportunity_id`, `expired_order_ids[]`
+- `reward`, `reward_breakdown`, `cumulative_return`
+
+`schedule[]`은 실제 촬영된 action만 모은 목록이며 step index, opportunity/order/strip/pass ID, 촬영 시각, 촬영 자세와 해당 step reward를 가진다.
+
+### PolicyComparison
+
+동일 시나리오의 여러 정책 결과는 `PolicyComparison` 형식으로 저장한다.
+
+- `scenario_id`
+- `entries[]`: 정책별 비교 행
+- `best_policy_name`: 총 return, 완료 주문 수, 완료 strip 수, 촬영 수 순서로 고른 최고 정책 이름
+
+`entries[]`의 각 항목은 정책 이름, seed, 총 return, reward breakdown 합계, 완료 strip/order 수, 촬영 수, step 수와 선택적으로 해당 정책의 `replay_path`를 가진다. 이 artifact는 단계 13의 정책 비교 화면과 단계 8 저장 계층에서 재사용한다.
 
 ## 8. Gymnasium 관측 및 행동 계약
 

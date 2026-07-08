@@ -4,11 +4,11 @@
 
 - 마지막 갱신일: 2026-07-08
 - 작업 디렉터리: `D:\HY\01. Developer\Project\NSICPS_RL_Scheduling`
-- 프로젝트 상태: 구현 계획 단계 0~6 완료, 단계 2A 완료
-- 현재 구현 단계: 단계 7 결과 및 재생 로그 구현 전
+- 프로젝트 상태: 구현 계획 단계 0~7 완료, 단계 2A 완료
+- 현재 구현 단계: 단계 8 저장 계층 구현 전
 - 진행 중 작업: 없음
 - Blocker: 없음
-- Git 상태: 작업 트리에 단계 6 benchmark CLI, 성능 검증 문서 및 RL 학습 노트 갱신 변경 있음
+- Git 상태: 작업 트리에 단계 7 replay/comparison artifact 구현 및 문서 갱신 변경 있음
 - Git 원격: `https://github.com/Hy210/Satellite-RL-Scheduling-Lab.git`
 
 ## 현재 목표
@@ -62,6 +62,12 @@
 - `tools/stage6_benchmark.py` 반복 seed 성능 검증 CLI 추가
 - `synthetic-tiny-20260707`에서 Maskable PPO가 Random valid 대비 단계 6 통과 기준을 만족함을 검증
 - 단계 6 검증이 Maskable PPO와 Random valid 기준선 비교라는 점과 tiny 검증의 한계를 개인 RL 학습 노트에 기록
+- `EpisodeReplay`, `ReplayStep`, `ReplayCandidate`, `ReplayRewardBreakdown`, `ReplayCapture` 공통 재생 로그 계약 추가
+- 기준 정책 평가와 Maskable PPO 평가가 같은 replay 로그를 생성하도록 구현
+- PPO 학습 산출물에 `metrics/replay.json` 저장 추가
+- replay JSON 저장/복원 helper와 reward 합계, action mask 사유 검증 테스트 추가
+- `PolicyComparison` 및 `PolicyComparisonEntry` 비교 artifact 계약 추가
+- 여러 정책 replay와 성능 지표를 하나의 비교 JSON으로 저장/복원하는 helper와 테스트 추가
 - `docs/rl-scheduling-design.md`, `docs/data-format.md`, `docs/web-application-design.md`, `docs/implementation-plan.md`, `docs/project-knowledge.md`에 가상 ground track, footprint, access window 및 지도 검수 흐름 반영
 
 ## 주요 파일
@@ -82,6 +88,7 @@
 - `rl_core/simulator.py`: 결정론적 이벤트 시뮬레이터
 - `rl_core/policies.py`: 기준 정책과 공통 평가기
 - `rl_core/gym_env.py`: Gymnasium 및 Maskable PPO 연결 wrapper
+- `rl_core/replay.py`: 평가 episode 재생 로그 생성과 JSON 저장/복원
 - `rl_core/training.py`: Maskable PPO 학습, 평가 및 artifact 저장
 - `tests/`: 데이터, 생성기, 시뮬레이터 및 통합 테스트
 - `tests/test_training.py`: 단계 6 학습 artifact와 reload 평가 smoke 테스트
@@ -114,6 +121,11 @@
 - `.venv\Scripts\python.exe -m ruff check .`: 통과
 - `.venv\Scripts\python.exe -m mypy`: 통과
 - `git status --short --ignored`: `data/runs/`는 ignored로 표시되어 학습 산출물이 Git 추적 대상에서 제외됨을 확인
+- `.venv\Scripts\python.exe -m pytest tests/test_policies.py tests/test_training.py`: 26개 테스트 통과
+- `.venv\Scripts\python.exe -m pytest`: 67개 테스트 통과
+- `.venv\Scripts\python.exe -m ruff check .`: 통과
+- `.venv\Scripts\python.exe -m mypy`: 통과
+- `.venv\Scripts\python.exe -m pytest tests/test_policies.py`: 24개 테스트 통과
 
 ## 알려진 문제와 미확정 사항
 
@@ -128,9 +140,9 @@
 
 ## 다음 세션의 첫 작업
 
-[구현 계획의 단계 7](docs/implementation-plan.md#단계-7-결과-및-재생-로그)로 이동한다.
+[구현 계획의 단계 8](docs/implementation-plan.md#단계-8-저장-계층)로 이동한다.
 
-저장된 평가 episode를 재생할 수 있도록 episode 요약, step별 state/action 후보/action mask 사유/reward breakdown 로그 형식을 설계하고 구현한다. 단계 6의 `final-evaluation.json`과 기준 정책 `DecisionLog`를 재사용할 수 있는 공통 로그 계약부터 정한다.
+SQLite schema와 로컬 artifact 디렉터리 관리 방식을 구현한다. 시작점은 시나리오 메타데이터, 학습 run, 평가 run, `EpisodeReplay` 및 `PolicyComparison` 파일 경로를 추적하는 최소 저장 계층을 설계하고 테스트하는 것이다.
 
 ## 관련 문서
 

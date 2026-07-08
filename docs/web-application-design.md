@@ -344,6 +344,8 @@ background = 회색
 - 누적 return
 - 주문과 strip 완료 상태 변화
 
+초기 구현의 재생 데이터는 RL core의 `EpisodeReplay` JSON 계약을 기준으로 조회한다. Backend는 보상, 후보, action mask 사유를 재계산하지 않고 저장된 replay를 전달하거나 필요한 화면 형식으로만 변환한다.
+
 재생 속도와 특정 step 직접 이동 기능을 제공한다.
 
 ## 7. 실시간 통신

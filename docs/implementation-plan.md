@@ -315,15 +315,15 @@ full   : 주문 100개, pass 30개
 
 #### 작업
 
-- [ ] episode 요약 형식
-- [ ] step별 state 요약
-- [ ] action 후보 및 선택 action
-- [ ] action mask와 마스킹 사유
-- [ ] reward breakdown
-- [ ] 촬영 전후 시간과 자세
-- [ ] 주문 및 strip 상태 변화
-- [ ] 최종 촬영 스케줄
-- [ ] 정책별 비교 결과
+- [x] episode 요약 형식
+- [x] step별 state 요약
+- [x] action 후보 및 선택 action
+- [x] action mask와 마스킹 사유
+- [x] reward breakdown
+- [x] 촬영 전후 시간과 자세
+- [x] 주문 및 strip 상태 변화
+- [x] 최종 촬영 스케줄
+- [x] 정책별 비교 결과
 
 #### 로그 크기 관리
 
@@ -333,9 +333,13 @@ full   : 주문 100개, pass 30개
 
 #### 완료 조건
 
-- 저장된 로그만으로 episode를 처음부터 끝까지 재생할 수 있다.
-- step별 reward의 합이 episode return과 일치한다.
-- 선택 당시의 마스킹 사유를 사후 확인할 수 있다.
+- [x] 저장된 로그만으로 episode를 처음부터 끝까지 재생할 수 있다.
+- [x] step별 reward의 합이 episode return과 일치한다.
+- [x] 선택 당시의 마스킹 사유를 사후 확인할 수 있다.
+
+`EpisodeReplay` 공통 계약을 추가해 기준 정책과 Maskable PPO 평가가 같은 재생 로그를 생성한다. PPO 학습 산출물에는 `metrics/replay.json`을 별도로 저장하고, 기준 정책 replay도 같은 저장/복원 helper를 사용한다.
+
+`PolicyComparison` 공통 계약을 추가해 같은 시나리오의 여러 정책 replay와 성능 지표를 하나의 비교 artifact로 묶는다. 이로써 단계 7은 완료로 본다. 비교 artifact의 영구 저장 위치와 데이터베이스 메타데이터 연결은 단계 8 저장 계층에서 확정한다.
 
 ---
 

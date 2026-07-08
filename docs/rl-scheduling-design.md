@@ -404,6 +404,8 @@ penalty_weight = 0.5
 - 미완료 패널티 합계
 - 유효 촬영 기회 사용률
 
+평가 episode는 `EpisodeReplay`로 저장해 선택 당시의 state, 후보 action, action mask 사유, 선택 action, reward breakdown과 선택 후 state를 재생할 수 있게 한다. 이 로그는 기준 정책과 Maskable PPO 평가가 같은 형식을 사용한다.
+
 별도의 완료 보너스는 두지 않는다. 완료 주문 수는 평가 지표로 사용한다. 정책이 주문 완료를 회피하고 부분 촬영만 지나치게 분산하는 현상이 관찰될 때만 완료 보너스 도입을 재검토한다.
 
 ## 12. 비교 정책

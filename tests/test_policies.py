@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import random
 from collections.abc import Sequence
+from pathlib import Path
 
 import pytest
 
@@ -28,6 +29,14 @@ from rl_core.policies import (
     PriorityGreedyPolicy,
     RandomValidPolicy,
     evaluate_policy,
+)
+from rl_core.replay import (
+    load_episode_replay,
+    load_policy_comparison,
+    policy_comparison,
+    policy_comparison_entry,
+    save_episode_replay,
+    save_policy_comparison,
 )
 from rl_core.simulator import SatelliteSchedulingSimulator
 
@@ -237,3 +246,68 @@ def test_policy_can_only_select_current_unmasked_slot() -> None:
     for policy in POLICIES:
         action = policy.select_action(simulator, observation, random.Random(1))
         assert observation.action_mask[action]
+
+
+def test_policy_replay_records_mask_reasons_and_reward_sum(tmp_path: Path) -> None:
+    scenario = build_competing_scenario(
+        [
+            ("valid", Priority.RED, 100.0, 0.0),
+            ("masked", Priority.BLUE, 100.0, 45.0),
+        ]
+    )
+
+    result = evaluate_policy(RandomValidPolicy(), scenario, seed=1)
+    masked_candidate = next(
+        candidate
+        for step in result.replay.steps
+        for candidate in step.candidates
+        if candidate.order_id == "masked"
+    )
+
+    assert masked_candidate.valid is False
+    assert "roll_limit" in masked_candidate.mask_reasons
+    assert "order_roll_limit" in masked_candidate.mask_reasons
+    assert result.replay.total_return == pytest.approx(
+        sum(step.reward_breakdown.total for step in result.replay.steps)
+    )
+    assert result.replay.schedule
+    replay_path = tmp_path / "random-valid-replay.json"
+    save_episode_replay(replay_path, result.replay)
+    assert load_episode_replay(replay_path) == result.replay
+
+
+def test_policy_comparison_artifact_summarizes_multiple_replays(tmp_path: Path) -> None:
+    scenario = generate_scenario(seed=20260707, size="tiny")
+    results = [evaluate_policy(policy, scenario, seed=17) for policy in POLICIES]
+    entries = []
+    for result in results:
+        replay_path = tmp_path / f"{result.policy_name}-replay.json"
+        save_episode_replay(replay_path, result.replay)
+        entries.append(
+            policy_comparison_entry(
+                replay=result.replay,
+                priority_score=result.priority_score,
+                angle_bonus=result.angle_bonus,
+                missed_penalty=result.missed_penalty,
+                replay_path=replay_path,
+            )
+        )
+
+    comparison = policy_comparison(entries)
+    comparison_path = tmp_path / "policy-comparison.json"
+    save_policy_comparison(comparison_path, comparison)
+    loaded = load_policy_comparison(comparison_path)
+
+    assert loaded == comparison
+    assert {entry.policy_name for entry in loaded.entries} == {policy.name for policy in POLICIES}
+    assert loaded.best_policy_name == max(
+        loaded.entries,
+        key=lambda entry: (
+            entry.total_return,
+            entry.completed_orders,
+            entry.completed_strips,
+            entry.captures,
+            entry.policy_name,
+        ),
+    ).policy_name
+    assert all(entry.replay_path is not None for entry in loaded.entries)
