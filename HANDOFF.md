@@ -2,13 +2,13 @@
 
 ## 현재 상태
 
-- 마지막 갱신일: 2026-07-08
+- 마지막 갱신일: 2026-07-13
 - 작업 디렉터리: `D:\HY\01. Developer\Project\NSICPS_RL_Scheduling`
 - 프로젝트 상태: 구현 계획 단계 0~7 완료, 단계 2A 완료
-- 현재 구현 단계: 단계 8 저장 계층 구현 전
+- 현재 구현 단계: 단계 7A CP-SAT 최적화 기준해 구현 전
 - 진행 중 작업: 없음
 - Blocker: 없음
-- Git 상태: 작업 트리에 단계 7 replay/comparison artifact 구현 및 문서 갱신 변경 있음
+- Git 상태: 작업 트리에 CP-SAT baseline 설계 및 RL solver 학습 문서 갱신 변경 있음
 - Git 원격: `https://github.com/Hy210/Satellite-RL-Scheduling-Lab.git`
 
 ## 현재 목표
@@ -69,6 +69,17 @@
 - `PolicyComparison` 및 `PolicyComparisonEntry` 비교 artifact 계약 추가
 - 여러 정책 replay와 성능 지표를 하나의 비교 JSON으로 저장/복원하는 helper와 테스트 추가
 - `docs/rl-scheduling-design.md`, `docs/data-format.md`, `docs/web-application-design.md`, `docs/implementation-plan.md`, `docs/project-knowledge.md`에 가상 ground track, footprint, access window 및 지도 검수 흐름 반영
+- RL 문맥에서 solver가 알고리즘, 정책, 학습 모델 또는 최적화 도구를 넓게 가리키는 말임을 `docs/rl-study-notes.md`에 기록
+- "solver로 정밀도를 올린다"는 조언이 최적화 기준해, 시뮬레이션 해상도, RL 학습 품질 또는 후처리 보정을 뜻할 수 있음을 `docs/rl-study-notes.md`에 보강
+- 후처리보다 CP-SAT/MILP 같은 최적화 solver로 tiny/small 시나리오의 기준해를 만들고 RL 정책과 비교하는 방향이 적절하다는 학습 메모를 `docs/rl-study-notes.md`에 보강
+- CP-SAT과 MILP의 차이, 위성 촬영 스케줄링에서 CP-SAT baseline이 먼저 자연스러운 이유를 `docs/rl-study-notes.md`에 기록
+- CP-SAT의 변수, 도메인, 제약, 목적함수, RL과의 차이를 `docs/rl-study-notes.md`에 개념 항목으로 보강
+- CP-SAT을 RL 후처리가 아니라 tiny/small 시나리오용 최적화 기준해 baseline으로 정의하고 `docs/rl-scheduling-design.md`에 변수, 제약, 목적함수, replay 검증 및 optimality gap 비교 방식을 반영
+- CP-SAT은 제약을 만족하는 기준해를 직접 찾고 그 결과로 RL/greedy 정책 품질을 평가하는 도구라는 개념 설명을 `docs/rl-study-notes.md`에 보강
+- CP-SAT 단계의 기본 선택으로 OR-Tools CP-SAT, tiny 10초/small 60초 time limit, 선택 보상 중심 목적함수, simulator replay 공식 점수 사용을 `docs/rl-scheduling-design.md`에 기록
+- `docs/data-format.md`에 `OptimizationBaselineResult` artifact 초안을 추가
+- `docs/implementation-plan.md`에 단계 7A CP-SAT 최적화 기준해 구현 단계를 추가
+- `docs/project-knowledge.md`에 CP-SAT baseline의 설계 근거와 simulator 정합성 위험을 기록
 
 ## 주요 파일
 
@@ -126,6 +137,13 @@
 - `.venv\Scripts\python.exe -m ruff check .`: 통과
 - `.venv\Scripts\python.exe -m mypy`: 통과
 - `.venv\Scripts\python.exe -m pytest tests/test_policies.py`: 24개 테스트 통과
+- 2026-07-12 RL 개념 설명 및 문서 갱신만 수행했으며, 코드 변경이 없어 테스트는 실행하지 않음
+- 2026-07-13 RL solver 개념 설명 및 문서 갱신만 수행했으며, 코드 변경이 없어 테스트는 실행하지 않음
+- 2026-07-13 최적화 solver 기준해 실험 방향 설명 및 문서 갱신만 수행했으며, 코드 변경이 없어 테스트는 실행하지 않음
+- 2026-07-13 CP-SAT/MILP 개념 설명 및 문서 갱신만 수행했으며, 코드 변경이 없어 테스트는 실행하지 않음
+- 2026-07-13 CP-SAT 기본 개념 설명 및 문서 갱신만 수행했으며, 코드 변경이 없어 테스트는 실행하지 않음
+- 2026-07-13 CP-SAT baseline 설계 문서 반영만 수행했으며, 코드 변경이 없어 테스트는 실행하지 않음
+- 2026-07-13 CP-SAT 이해 확인과 설계 애매점 정리 문서 갱신만 수행했으며, 코드 변경이 없어 테스트는 실행하지 않음
 
 ## 알려진 문제와 미확정 사항
 
@@ -140,9 +158,9 @@
 
 ## 다음 세션의 첫 작업
 
-[구현 계획의 단계 8](docs/implementation-plan.md#단계-8-저장-계층)로 이동한다.
+[구현 계획의 단계 7A](docs/implementation-plan.md#단계-7a-cp-sat-최적화-기준해)로 이동한다.
 
-SQLite schema와 로컬 artifact 디렉터리 관리 방식을 구현한다. 시작점은 시나리오 메타데이터, 학습 run, 평가 run, `EpisodeReplay` 및 `PolicyComparison` 파일 경로를 추적하는 최소 저장 계층을 설계하고 테스트하는 것이다.
+시작점은 OR-Tools CP-SAT 의존성을 검토하고, tiny 시나리오의 opportunity 선택 0/1 변수, 같은 strip 중복 금지, 시간/자세 전환 충돌 제약 및 simulator replay 재검증 테스트를 설계하는 것이다. 단계 7A가 완료된 뒤 단계 8 저장 계층으로 이동한다.
 
 ## 관련 문서
 

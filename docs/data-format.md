@@ -282,6 +282,25 @@ data/runs/<run-id>/
 
 `entries[]`의 각 항목은 정책 이름, seed, 총 return, reward breakdown 합계, 완료 strip/order 수, 촬영 수, step 수와 선택적으로 해당 정책의 `replay_path`를 가진다. 이 artifact는 단계 13의 정책 비교 화면과 단계 8 저장 계층에서 재사용한다.
 
+### OptimizationBaselineResult
+
+CP-SAT 같은 최적화 solver 기준해는 `OptimizationBaselineResult` 형식으로 저장한다. 이 artifact는 solver 실행 자체의 메타데이터와 선택된 opportunity 목록을 보존하고, 실제 정책 비교 점수는 선택 결과를 simulator로 다시 평가해 만든 `EpisodeReplay`와 `PolicyComparison`을 기준으로 한다.
+
+- `scenario_id`
+- `solver_name`: 예를 들어 `cp_sat`
+- `policy_name`: 정책 비교에서 사용할 이름, 기본값 `cp_sat_baseline`
+- `status`: `optimal`, `feasible`, `infeasible`, `time_limit`, `unknown`
+- `objective_value`: solver 모델의 목적함수 값
+- `best_bound`: solver가 제공하는 최선 bound, 없으면 null
+- `relative_gap`: `(best_bound - objective_value) / abs(objective_value)` 형태의 상대 gap, 계산할 수 없으면 null
+- `time_limit_sec`: solver 제한 시간
+- `wall_time_sec`: 실제 실행 시간
+- `selected_opportunity_ids[]`: solver가 선택한 opportunity ID 목록
+- `replay_path`: 선택 결과를 simulator 평가기로 실행해 저장한 `EpisodeReplay` 경로
+- `notes`: 제한 시간, 모델 단순화 또는 경고 메시지
+
+`selected_opportunity_ids[]`는 시간순으로 정렬해 저장한다. 저장된 목록을 다시 평가할 때 simulator가 시간, 자세, 마감 및 중복 촬영 제약을 위반한다고 판정하면 해당 solver artifact는 유효한 기준해로 사용하지 않고 검증 오류로 처리한다.
+
 ## 8. Gymnasium 관측 및 행동 계약
 
 `SatelliteSchedulingEnv`는 모든 값을 `numpy.float32` 고정 배열로 반환한다.

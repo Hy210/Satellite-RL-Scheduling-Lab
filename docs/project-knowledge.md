@@ -164,11 +164,15 @@ strip_base_reward = P / N
 ### 5.3 RL 결과에는 기준점이 필요하다
 
 **상태:** 확정  
-**마지막 갱신:** 2026-07-06
+**마지막 갱신:** 2026-07-13
 
 학습 return만으로 정책의 품질을 판단하기 어렵다. Random valid, Earliest deadline first, Priority greedy 및 Priority-efficiency greedy와 동일 시나리오에서 비교해야 한다.
 
 축소된 문제에서는 전수조사나 수리 최적화 결과와 비교해 optimality gap을 측정할 수 있다. 큰 문제에서는 최적성 보장보다 주요 휴리스틱 대비 개선을 평가한다.
+
+2026-07-13 설계 구체화에서 CP-SAT은 RL 결과를 고치는 후처리기가 아니라 `tiny`/`small` 시나리오의 정교한 기준해를 만드는 solver baseline으로 정의했다. 각 opportunity의 선택 여부를 0/1 변수로 두고, 같은 strip 중복, 시간 겹침, 최소 촬영 간격 및 자세 전환 불가능 후보 쌍을 제약으로 차단한다. CP-SAT 선택 결과는 기존 simulator로 다시 평가해 `EpisodeReplay`와 `PolicyComparison`에 포함해야 한다.
+
+이 결정의 의미는 Maskable PPO가 Random valid보다 나은지뿐 아니라, 최적화 solver 기준해에 얼마나 가까운지 볼 수 있게 하는 것이다. 다만 CP-SAT baseline의 신뢰도는 solver 모델이 simulator 제약과 reward 의미를 얼마나 정확히 반영하는지에 달려 있다.
 
 ### 5.4 초기 알고리즘 선택
 
@@ -297,6 +301,7 @@ PPO median return은 `5.326453530248241`, Random valid median return은 `5.32539
 | Settling time | 자세 전환 후 촬영 안정화를 위해 필요한 시간 |
 | Action mask | 실행 불가능한 행동이 정책에서 선택되지 않도록 차단하는 값 |
 | Baseline | RL 정책의 성능을 판단하기 위한 비교 정책 |
+| CP-SAT baseline | 축소 시나리오에서 최적화 solver로 만든 비교용 기준해 |
 
 ## 8. 미해결 질문과 향후 검토
 
@@ -310,10 +315,12 @@ PPO median return은 `5.326453530248241`, Random valid median return은 `5.32539
 | 일반화 평가 | 검토 필요 | 여러 시나리오 학습 시 훈련/검증/평가 seed 분리 필요 |
 | 후보 128개 제한 | 검토 필요 | 실제 시나리오에서 동시 후보 분포와 잘림 영향 측정 필요 |
 | tiny 성능 개선 폭 | 관찰 | 단계 6에서는 Random valid보다 근소하게 높았지만 완료 strip/order 수가 같아 larger scenario에서 재검증 필요 |
+| CP-SAT baseline 정합성 | 검토 필요 | solver 제약과 simulator action mask/reward가 어긋나면 optimality gap 해석이 왜곡되므로 단계 7A에서 재검증 필요 |
 
 ## 9. 변경 기록
 
 - 2026-07-08: 기준 정책과 Maskable PPO 평가가 공유하는 `EpisodeReplay` 로그 계약과 `PolicyComparison` 비교 artifact를 기록했다.
+- 2026-07-13: CP-SAT을 후처리가 아닌 축소 시나리오용 최적화 기준해 baseline으로 정의하고, simulator replay로 재검증해야 한다는 설계 근거를 기록했다.
 - 2026-07-08: 단계 6 Maskable PPO 반복 seed 성능 검증 결과와 tiny 시나리오 해석상 주의점을 기록했다.
 - 2026-07-07: Maskable PPO 학습 산출물 구조와 학습/평가 seed 분리의 의미를 기록했다.
 - 2026-07-07: strip과 footprint를 pass 진행 방향에 맞춘 polygon으로 바꾸고 pitch 0 해석을 기록했다.

@@ -29,6 +29,7 @@
 5. Gymnasium 환경
 6. RL 학습
 7. 결과 및 재생 로그
+7A. CP-SAT 최적화 기준해
 8. 저장 계층
 9. FastAPI Backend
 10. React Frontend 기본 화면
@@ -340,6 +341,41 @@ full   : 주문 100개, pass 30개
 `EpisodeReplay` 공통 계약을 추가해 기준 정책과 Maskable PPO 평가가 같은 재생 로그를 생성한다. PPO 학습 산출물에는 `metrics/replay.json`을 별도로 저장하고, 기준 정책 replay도 같은 저장/복원 helper를 사용한다.
 
 `PolicyComparison` 공통 계약을 추가해 같은 시나리오의 여러 정책 replay와 성능 지표를 하나의 비교 artifact로 묶는다. 이로써 단계 7은 완료로 본다. 비교 artifact의 영구 저장 위치와 데이터베이스 메타데이터 연결은 단계 8 저장 계층에서 확정한다.
+
+---
+
+### 단계 7A. CP-SAT 최적화 기준해
+
+이 단계는 Maskable PPO를 후처리하지 않고, 축소 시나리오에서 RL 정책과 기준 정책의 성능을 더 정밀하게 비교하기 위한 최적화 solver baseline을 추가한다. 첫 구현 대상은 `tiny` 시나리오이며, 모델 정합성과 실행 시간을 확인한 뒤 `small`로 확장한다.
+
+#### 작업
+
+- [ ] OR-Tools CP-SAT 의존성 검토 및 추가
+- [ ] opportunity 선택 0/1 변수 모델링
+- [ ] 같은 strip 중복 선택 금지 제약
+- [ ] 시간 겹침 및 최소 촬영 간격 충돌 제약
+- [ ] simulator와 동일한 자세 전환시간 기반 충돌 제약
+- [ ] 주문 기간, access window, episode 범위 및 자세 제한 위반 후보 제외
+- [ ] reward와 유사한 선형 목적함수 정의
+- [ ] solver 선택 결과를 시간순 action 열로 변환
+- [ ] 선택 결과를 기존 simulator 평가기로 재검증하고 `EpisodeReplay` 생성
+- [ ] `OptimizationBaselineResult` 저장 및 복원 helper
+- [ ] `PolicyComparison`에 `cp_sat_baseline` 항목 포함
+- [ ] 제한 시간, solver status, best objective, bound 및 gap 기록
+
+#### 필수 검증
+
+- [ ] tiny 시나리오에서 CP-SAT 결과가 모든 simulator 제약을 만족한다.
+- [ ] CP-SAT이 선택한 opportunity ID 목록을 replay로 다시 실행할 수 있다.
+- [ ] solver 목적함수와 simulator return 차이를 reward breakdown으로 설명할 수 있다.
+- [ ] infeasible 또는 time limit 상태가 명확한 artifact 상태로 저장된다.
+- [ ] Random valid, greedy, Maskable PPO 및 CP-SAT baseline을 같은 `PolicyComparison`으로 비교할 수 있다.
+
+#### 완료 조건
+
+- [ ] tiny 시나리오에서 CP-SAT baseline 결과와 optimality gap을 산출할 수 있다.
+- [ ] CP-SAT 결과가 기존 평가·재생 로그 구조와 호환된다.
+- [ ] solver 모델이 simulator 제약과 어긋날 경우 테스트가 실패한다.
 
 ---
 

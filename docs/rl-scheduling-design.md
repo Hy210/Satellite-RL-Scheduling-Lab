@@ -430,6 +430,55 @@ optimality_gap = (optimal_score - rl_score) / optimal_score
 
 큰 시나리오에서는 주요 greedy 정책보다 높은 점수를 얻는 것을 목표로 하고, 작은 시나리오에서는 계산된 최적해에 최대한 근접하는 것을 목표로 한다. RL 정책이 항상 최적해를 보장할 필요는 없다.
 
+### 12.1 CP-SAT 최적화 기준해
+
+CP-SAT은 RL 정책의 후처리기가 아니라, 축소 시나리오에서 비교용 기준해를 만들기 위한 별도 solver baseline으로 사용한다. 첫 적용 범위는 `tiny` 시나리오이며, 계산 시간과 제약 모델의 정합성을 확인한 뒤 `small` 시나리오로 확장한다. `full` 시나리오는 최적해 증명보다 제한 시간 안의 best found solution과 bound를 기록하는 선택적 분석 대상으로 둔다.
+
+초기 CP-SAT 모델은 전체 opportunity를 직접 보고 다음 0/1 선택 변수를 둔다.
+
+```text
+x_i = opportunity i를 선택하면 1, 선택하지 않으면 0
+```
+
+기본 제약은 다음과 같다.
+
+- 같은 strip의 opportunity는 최대 하나만 선택한다.
+- 주문 요구 기간, access window, episode 범위, 자세 제한을 구조적으로 위반하는 opportunity는 선택하지 않는다.
+- 촬영 시간이 겹치거나 최소 촬영 간격을 만족하지 못하는 opportunity 쌍은 동시에 선택하지 않는다.
+- 시간순으로 앞선 opportunity `i`에서 뒤의 opportunity `j`로 자세 전환이 불가능한 경우 `x_i + x_j <= 1` 제약을 추가한다.
+- CP-SAT은 현재 이벤트 후보 128개 padding 제한을 사용하지 않고 전체 opportunity를 대상으로 한다. 후보 128개 제한은 RL action space를 위한 인터페이스 제약이다.
+
+두 opportunity의 전환 가능성은 simulator의 자세 전환식과 동일한 파라미터를 사용해 판정한다.
+
+```text
+transition_ready_time =
+    end_i + max(minimum_interval, slew_time(i -> j))
+
+if start_j < transition_ready_time:
+    x_i + x_j <= 1
+```
+
+목적함수는 simulator 보상과 가능한 한 같은 의미가 되도록 한다. 선택한 opportunity의 strip 기본 보상, 각도 보너스, 미완료 패널티 감소분을 선형 점수로 환산해 최대화한다. 최종 비교 점수는 solver 목적함수 값만 사용하지 않고, 선택된 opportunity ID 목록을 기존 simulator 평가기로 다시 실행한 `EpisodeReplay`의 return과 reward breakdown을 기준으로 한다.
+
+CP-SAT 결과는 정책 이름 `cp_sat_baseline`의 평가 결과처럼 저장한다. 같은 시나리오에서 Random valid, greedy 정책, Maskable PPO 및 CP-SAT baseline을 `PolicyComparison`으로 묶어 비교한다. CP-SAT이 제한 시간 안에 최적해를 증명하지 못한 경우에는 solver status, best objective, best bound, gap 및 time limit을 함께 기록한다.
+
+이 기준해의 목적은 RL을 대체하는 것이 아니라 다음 질문에 답하는 것이다.
+
+- Maskable PPO가 Random valid만 넘은 것인지, 최적화 기준해에 어느 정도 가까운지
+- greedy 정책과 RL 정책의 차이가 실제 스케줄 품질 차이인지
+- 현재 reward와 제약 모델이 solver 기준에서도 일관된 선택을 유도하는지
+
+구현 전 남은 모델링 선택지는 다음 기본값으로 시작한다.
+
+- solver는 OR-Tools CP-SAT을 우선 사용한다.
+- 첫 time limit은 tiny 시나리오 10초, small 시나리오 60초를 기본값으로 둔다.
+- 목적함수는 첫 버전에서 선택한 strip의 `strip_base_reward + angle_bonus` 합을 최대화하고, 미완료 패널티는 replay 재평가에서 확인한다.
+- 주문 완료 보너스는 현재 reward 설계와 동일하게 두지 않는다.
+- CP-SAT 모델이 선택한 opportunity 목록은 항상 simulator로 재검증하며, simulator return을 정책 비교의 공식 점수로 사용한다.
+- full 시나리오 CP-SAT은 단계 7A 완료 조건에 포함하지 않고 후속 분석으로 둔다.
+
+위 기본값은 구현을 시작하기 위한 보수적 선택이며, 사용자가 solver 실행 시간이나 목적함수 정합성 기준을 더 엄격하게 요구하면 단계 7A 구현 전에 조정한다.
+
 ## 13. 초기 알고리즘 방향
 
 초기 알고리즘은 이산 행동과 action masking을 지원하는 Maskable PPO를 우선 검토한다.
