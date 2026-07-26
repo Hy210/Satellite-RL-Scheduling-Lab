@@ -18,10 +18,11 @@ def test_generator_creates_expected_scale(size: str) -> None:
     assert scenario.opportunities
 
 
-def test_generator_is_reproducible() -> None:
-    first = generate_scenario(seed=99, size="tiny")
-    second = generate_scenario(seed=99, size="tiny")
-    different = generate_scenario(seed=100, size="tiny")
+@pytest.mark.parametrize("size", ["tiny", "small", "full"])
+def test_generator_is_reproducible(size: str) -> None:
+    first = generate_scenario(seed=99, size=size)
+    second = generate_scenario(seed=99, size=size)
+    different = generate_scenario(seed=100, size=size)
 
     assert first.to_json() == second.to_json()
     assert first.to_json() != different.to_json()

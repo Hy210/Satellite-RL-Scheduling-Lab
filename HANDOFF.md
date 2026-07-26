@@ -5,10 +5,10 @@
 - 마지막 갱신일: 2026-07-26
 - 작업 디렉터리: `D:\HY\01. Developer\Project\NSICPS_RL_Scheduling`
 - 프로젝트 상태: 구현 계획 단계 0~9 완료, 단계 2A, 7A 및 13 완료
-- 현재 구현 단계: 단계 14 통합 검증과 문서 정리 (1차 배치 완료 — 검증 항목 4/10, 문서 0/7)
+- 현재 구현 단계: 단계 14 통합 검증과 문서 정리 (검증 항목 8/10 완료, 문서 0/7)
 - 진행 중 작업: 없음
 - Blocker: 없음
-- Git 상태: 2026-07-25 CP-SAT baseline, 저장 계층, Backend, Frontend 변경을 `7d62fc7`로, 2026-07-26 CP-SAT worker 오류 코드 정리·통합 테스트·`.gitignore` 정리를 `567bac7`로 커밋·push 완료. 이번 세션 변경(단계 14 1차 배치: 잘못된 시나리오 학습 차단, 추적 가능성·단위 일치·시간/자세 제약 검증)은 커밋 대기.
+- Git 상태: 2026-07-25 CP-SAT baseline, 저장 계층, Backend, Frontend 변경을 `7d62fc7`로, 2026-07-26 CP-SAT worker 오류 코드 정리·통합 테스트·`.gitignore` 정리를 `567bac7`로, 단계 14 1차 배치(잘못된 시나리오 학습 차단, 추적 가능성·단위 일치·시간/자세 제약 검증)를 `6dfadec`로 커밋·push 완료. 이번 세션 변경(단계 14 2차 배치: 시나리오·정책 재현성, return/reward breakdown 일치)은 커밋 대기.
 - Git 원격: `https://github.com/Hy210/Satellite-RL-Scheduling-Lab.git`
 
 ## 현재 목표
@@ -133,6 +133,10 @@
 - `EvaluationRun` → `TrainingRun` → config snapshot → checkpoint/final model 존재 여부까지 API로 끊김 없이 추적 가능함을 확인하는 통합 테스트 추가, 실제 모델 파일은 로컬 경로 규칙으로 찾는다는 점을 문서화
 - 저장된 `EpisodeReplay.schedule`이 시뮬레이터 재호출 없이도 촬영 window·최소 간격·slew 제약을 만족하는지 독립적으로 재확인하는 통합 테스트 추가
 - `created_at`/`updated_at`이 ISO 8601 UTC 문자열이라는 기존 관례를 `docs/data-format.md`에 명시하고 회귀 테스트 추가 — 각도·경과시간 단위는 모델→API→Frontend까지 이미 일치함을 코드 검토로 확인
+- 단계 14 2차 배치: 시나리오·baseline 정책 재현성 테스트를 tiny 단일 규모에서 tiny/small/full 전체 규모로 확장
+- Maskable PPO는 같은 모델을 두 번 평가해 완전히 동일한 결과가 나오는지 직접 확인하는 재현성 테스트를 추가(기존에는 reload 후 재평가 비교로만 간접 확인)
+- CP-SAT은 solver seed를 고정해 두었음에도 실제 재현성을 검증한 테스트가 없던 gap을 발견해 재현성 테스트 추가
+- Maskable PPO에 step reward 합, CP-SAT에 reward 구성요소 합 assertion을 추가해 return/reward breakdown 일치 검증을 두 정책 유형까지 대칭적으로 확장
 
 ## 주요 파일
 
@@ -292,10 +296,14 @@
 - `.venv\Scripts\python.exe -m pytest -q`: 116개 테스트 통과 (외부 Starlette/httpx deprecation warning 1건)
 - `.venv\Scripts\python.exe -m ruff check .` / `ruff format --check .` / `mypy`: 통과
 - 이번 배치는 backend/rl_core/tests와 문서만 변경했고 Frontend 파일은 건드리지 않아 `npm run build` 재확인은 생략했다.
+- 2026-07-26 단계 14 2차 배치(동일 seed 시나리오 재현, 동일 정책 평가 결과 재현, return/reward breakdown 일치)를 완료하고 [구현 계획](docs/implementation-plan.md) 단계 14 통합 검증 체크박스 8/10을 반영했다.
+- `.venv\Scripts\python.exe -m pytest -q`: 128개 테스트 통과 (외부 Starlette/httpx deprecation warning 1건)
+- `.venv\Scripts\python.exe -m ruff check .` / `ruff format --check .` / `mypy`: 통과
+- 이번 배치도 rl_core/tests와 문서만 변경했고 Frontend 파일은 건드리지 않아 `npm run build` 재확인은 생략했다.
 
 ## 다음 세션의 첫 작업
 
-[구현 계획의 단계 14](docs/implementation-plan.md) 통합 검증 나머지 6개 항목 중 저비용인 "동일 seed의 시나리오 재현", "동일 정책 평가 결과 재현", "return과 reward breakdown 일치"부터 확인한다(기존 `tests/test_generator.py`·`tests/test_policies.py`·replay round-trip 테스트가 이미 부분적으로 커버하므로 gap만 보강). 이후 결과 의존적인 "full 시나리오의 성능과 메모리 확인"(어떤 seed/규모를 기준으로 할지 먼저 결정 필요)과 "RL과 모든 기준 정책 비교"(small 규모 먼저, full은 그다음)로 이어가고, 문서 7개 항목은 검증 결과가 어느 정도 쌓인 뒤 한 번에 정리한다.
+[구현 계획의 단계 14](docs/implementation-plan.md) 통합 검증 나머지 2개 항목("full 시나리오의 성능과 메모리 확인", "RL과 모든 기준 정책 비교")에 착수한다. 둘 다 결과 의존적이므로 먼저 어떤 seed/규모를 기준으로 할지와 측정·비교 방식을 정한 뒤 진행한다("full 시나리오의 성능과 메모리 확인"은 어떤 규모의 실제 PPO 학습을 얼마나 오래 돌릴지부터, "RL과 모든 기준 정책 비교"는 small 규모부터 시작해 full로 확장). 두 항목이 끝나면 문서 7개 항목(설치·로컬 실행·테스트 방법, 데이터 형식, API 계약, 학습/평가 실행 방법, 알려진 제한사항)을 한 번에 정리한다.
 
 ## 관련 문서
 

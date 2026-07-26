@@ -50,6 +50,11 @@ def test_cp_sat_baseline_solves_tiny_scenario_and_replays(tmp_path) -> None:
     assert result.replay.total_return == pytest.approx(
         sum(step.reward_breakdown.total for step in result.replay.steps)
     )
+    assert result.replay.total_return == pytest.approx(
+        sum(step.reward_breakdown.strip_base for step in result.replay.steps)
+        + sum(step.reward_breakdown.angle_bonus for step in result.replay.steps)
+        + sum(step.reward_breakdown.missed_penalty for step in result.replay.steps)
+    )
     assert {capture.opportunity_id for capture in result.replay.schedule} == set(
         result.selected_opportunity_ids
     )
@@ -57,6 +62,17 @@ def test_cp_sat_baseline_solves_tiny_scenario_and_replays(tmp_path) -> None:
     path = tmp_path / "cp-sat-baseline.json"
     save_optimization_baseline(path, result)
     assert load_optimization_baseline(path) == result
+
+
+def test_cp_sat_baseline_is_reproducible() -> None:
+    # "동일 정책 평가 결과 재현": solver.parameters.random_seed를 고정해도 실제로
+    # 같은 결과가 나오는지는 코드 검토만으로 알 수 없어 직접 두 번 실행해 확인한다.
+    scenario = generate_scenario(seed=20260707, size="tiny")
+
+    first = solve_cp_sat_baseline(scenario, time_limit_sec=10.0, seed=17)
+    second = solve_cp_sat_baseline(scenario, time_limit_sec=10.0, seed=17)
+
+    assert first == second
 
 
 def test_cp_sat_baseline_joins_all_policy_types_in_one_comparison(tmp_path) -> None:

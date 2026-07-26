@@ -69,9 +69,10 @@ def test_all_policies_finish_all_scenario_sizes(
     )
 
 
+@pytest.mark.parametrize("size", ["tiny", "small", "full"])
 @pytest.mark.parametrize("policy", POLICIES, ids=lambda policy: policy.name)
-def test_policy_evaluation_is_reproducible(policy: BaselinePolicy) -> None:
-    scenario = generate_scenario(seed=91, size="tiny")
+def test_policy_evaluation_is_reproducible(policy: BaselinePolicy, size: str) -> None:
+    scenario = generate_scenario(seed=91, size=size)
 
     first = evaluate_policy(policy, scenario, seed=123)
     second = evaluate_policy(policy, scenario, seed=123)

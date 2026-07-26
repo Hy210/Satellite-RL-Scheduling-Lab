@@ -62,6 +62,33 @@ def test_maskable_ppo_training_saves_reloadable_artifacts(tmp_path: Path) -> Non
     assert reloaded_evaluation.priority_score + reloaded_evaluation.angle_bonus + (
         reloaded_evaluation.missed_penalty
     ) == pytest.approx(reloaded_evaluation.total_return)
+    assert reloaded_evaluation.replay.total_return == pytest.approx(
+        sum(step.reward_breakdown.total for step in reloaded_evaluation.replay.steps)
+    )
+
+
+def test_maskable_ppo_evaluation_is_reproducible(tmp_path: Path) -> None:
+    # "동일 정책 평가 결과 재현": deterministic_eval=True에서 같은 모델을 두 번
+    # 평가하면 완전히 같은 action·return이 나와야 한다 (학습 품질과는 별개 성질).
+    scenario = generate_scenario(seed=20260707, size="tiny")
+    config = MaskablePPOTrainingConfig(
+        total_timesteps=8,
+        learning_seed=11,
+        evaluation_seed=17,
+        n_steps=8,
+        batch_size=4,
+        n_epochs=1,
+        checkpoint_interval=8,
+        evaluation_interval=8,
+        artifact_root=tmp_path,
+    )
+    artifacts = train_maskable_ppo(scenario, config, run_id="reproducible-run")
+    model = load_maskable_ppo_model(artifacts.final_model_path, scenario)
+
+    first = evaluate_trained_policy(model, scenario, seed=config.evaluation_seed)
+    second = evaluate_trained_policy(model, scenario, seed=config.evaluation_seed)
+
+    assert first == second
 
 
 def test_training_metrics_include_domain_evaluation(tmp_path: Path) -> None:

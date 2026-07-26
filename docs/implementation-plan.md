@@ -554,10 +554,10 @@ PPO 최종 평가와 CP-SAT 기준해는 모두 공통 summary·replay artifact�
 
 #### 통합 검증
 
-- [ ] 동일 seed의 시나리오 재현
-- [ ] 동일 정책 평가 결과 재현
+- [x] 동일 seed의 시나리오 재현
+- [x] 동일 정책 평가 결과 재현
 - [x] 모든 촬영의 시간 및 자세 제약 준수
-- [ ] return과 reward breakdown 일치
+- [x] return과 reward breakdown 일치
 - [x] 데이터 모델, API 및 GUI 단위 일치
 - [x] 모델과 설정의 추적 가능성
 - [x] 학습 worker 실패 처리
@@ -572,7 +572,13 @@ PPO 최종 평가와 CP-SAT 기준해는 모두 공통 summary·replay artifact�
 - **촬영 시간·자세 제약 준수**: `rl_core/simulator.py`가 매 action마다 강제하는 window·roll/tilt·slew·최소 간격 제약을, 저장된 `EpisodeReplay.schedule`만으로 시뮬레이터를 다시 호출하지 않고 독립적으로 재확인하는 `tests/test_integration.py::test_replay_schedule_respects_capture_window_and_minimum_interval`을 추가했다.
 - **잘못된 시나리오의 학습 차단**: `_load_scenario_or_api_error`가 SHA-256 불일치를 검사하지 않아 손상된(구조는 유효한) scenario로 학습·평가가 조용히 시작될 수 있던 gap을 발견해 수정했다. `backend/app.py`에 `_load_valid_scenario_or_api_error`를 추가해 `POST /api/training-runs`, `POST /api/evaluation-runs`, `POST /api/cp-sat-evaluation-runs` 세 곳 모두 `repository.validate_scenario()`까지 통과해야 실행을 시작하도록 교체했고(읽기 전용 조회 API는 기존 동작 유지), 세 endpoint 각각의 checksum 불일치 차단 테스트를 추가했다.
 
-나머지 6개 항목(동일 seed·정책 재현, return/reward breakdown 일치, full 규모 성능·메모리, RL·전체 기준 정책 비교)과 문서 7개 항목은 결과 의존적이거나 더 큰 작업 단위라 후속 세션에서 진행한다.
+2026-07-26 2차 배치는 나머지 4개 항목 중 저비용인 2개를 완료했다.
+
+- **동일 seed의 시나리오 재현**: `tests/test_generator.py::test_generator_is_reproducible`을 tiny 단일 규모에서 tiny/small/full 전체 규모로 parametrize 확장했다.
+- **동일 정책 평가 결과 재현**: 4개 baseline 정책은 `tests/test_policies.py::test_policy_evaluation_is_reproducible`를 마찬가지로 전체 규모로 확장했다. Maskable PPO는 같은 모델을 두 번 평가해 완전히 같은 결과가 나오는지 직접 확인하는 `tests/test_training.py::test_maskable_ppo_evaluation_is_reproducible`을 추가했다(기존에는 reload-후 재평가 비교로만 간접 확인됐다). CP-SAT은 `solver.parameters.random_seed`를 고정해 두었음에도 실제 재현성을 검증한 테스트가 전혀 없던 gap을 발견해 `tests/test_optimization.py::test_cp_sat_baseline_is_reproducible`을 추가했다.
+- **return과 reward breakdown 일치**: 기존에 baseline 4종만 두 형태(step reward 합, 구성요소 합) 모두로 검증돼 있었다. Maskable PPO에 step reward 합 assertion을, CP-SAT에 구성요소 합 assertion을 추가해 두 정책 유형도 대칭적으로 커버했다.
+
+남은 2개 통합 검증 항목(full 규모 성능·메모리, RL·전체 기준 정책 비교)과 문서 7개 항목은 결과 의존적이거나 더 큰 작업 단위라 후속 세션에서 진행한다.
 
 #### 문서
 
