@@ -4,7 +4,12 @@ from math import hypot
 
 import pytest
 
-from rl_core.generator import SCALES, generate_scenario
+from rl_core.generator import (
+    ATTITUDE_DEG_PER_GROUND_DEG,
+    SCALES,
+    generate_scenario,
+    resolve_attitude_look_point,
+)
 from rl_core.models import OpportunityKind, Polygon
 
 
@@ -85,6 +90,98 @@ def test_generated_strip_polygons_follow_source_pass_direction() -> None:
         pass_axis = _track_axis(orbit_pass.sequence)
         alignment = abs(strip_axis[0] * pass_axis[0] + strip_axis[1] * pass_axis[1])
         assert alignment > 0.99
+
+
+def test_resolve_attitude_look_point_inverts_attitude_formula() -> None:
+    # generator의 순방향 계산(strip 중심 -> roll/tilt)과 역방향 계산(roll/tilt -> 지점)이
+    # 서로 일치하는지 확인한다 — 이 함수가 rl_core 안에서만 계산식을 알고 있어야
+    # 프론트엔드가 계산식을 몰라도 되는 설계를 검증한다.
+    #
+    # 최근접 footprint는 반드시 opportunity를 만든 access window의 footprint 그룹
+    # (`AccessWindow.footprint_ids`) 안에서만 찾아야 한다 — 같은 pass의 다른 strip이
+    # 가진 footprint까지 포함해 pass 전체에서 찾으면, 시간상 우연히 더 가까운 다른
+    # strip의 footprint를 잘못 골라 지점이 크게 어긋나는 실제 버그가 있었다.
+    scenario = generate_scenario(seed=7, size="small")
+    footprint_by_id = {sample.footprint_id: sample for sample in scenario.footprint_samples}
+    window_by_id = {window.access_window_id: window for window in scenario.access_windows}
+
+    for opportunity in scenario.opportunities:
+        look_point = resolve_attitude_look_point(scenario, opportunity)
+
+        assert opportunity.source_access_window_id is not None
+        window = window_by_id[opportunity.source_access_window_id]
+        group = [footprint_by_id[footprint_id] for footprint_id in window.footprint_ids]
+        nearest = min(group, key=lambda sample: abs(sample.time_sec - opportunity.capture_time_sec))
+        recovered_roll = (
+            look_point.lon - nearest.center_longitude_deg
+        ) * ATTITUDE_DEG_PER_GROUND_DEG
+        recovered_tilt = (
+            look_point.lat - nearest.center_latitude_deg
+        ) * ATTITUDE_DEG_PER_GROUND_DEG
+
+        # roll/tilt는 ±27도로 clamp되므로(_attitude_for_time), 그 한계에 걸린 opportunity는
+        # 원래 strip 중심과 거리가 있을 수 있다 — strip 근접 여부가 아니라 "역산이
+        # 순방향 공식과 정확히 맞아떨어지는가"만 확인한다.
+        assert recovered_roll == pytest.approx(opportunity.required_roll_deg, abs=1e-6)
+        assert recovered_tilt == pytest.approx(opportunity.required_tilt_deg, abs=1e-6)
+
+
+def test_resolve_attitude_look_point_stays_within_source_access_window_group() -> None:
+    # 같은 pass 안에 여러 strip의 access window가 있을 때, pass 전체 최근접이 아니라
+    # 이 opportunity를 만든 access window의 footprint 그룹으로 검색 범위가 제한되는지
+    # 직접 확인한다(회귀 방지: 이전에는 pass 전체에서 찾아 엉뚱한 strip의 footprint를
+    # 골라 지점이 실제 strip과 무관하게 멀리 떨어지는 버그가 있었다).
+    scenario = generate_scenario(seed=20260707, size="small")
+    footprint_by_id = {sample.footprint_id: sample for sample in scenario.footprint_samples}
+    window_by_id = {window.access_window_id: window for window in scenario.access_windows}
+    strip_by_id = {strip.strip_id: strip for strip in scenario.strips}
+
+    checked_any = False
+    for opportunity in scenario.opportunities:
+        assert opportunity.source_access_window_id is not None
+        window = window_by_id[opportunity.source_access_window_id]
+        group_ids = set(window.footprint_ids)
+        same_pass_outside_group = [
+            sample
+            for sample in scenario.footprint_samples
+            if sample.pass_id == opportunity.pass_id and sample.footprint_id not in group_ids
+        ]
+        if not same_pass_outside_group:
+            continue
+        outside_nearest = min(
+            same_pass_outside_group,
+            key=lambda sample: abs(sample.time_sec - opportunity.capture_time_sec),
+        )
+        group_nearest = min(
+            (footprint_by_id[footprint_id] for footprint_id in group_ids),
+            key=lambda sample: abs(sample.time_sec - opportunity.capture_time_sec),
+        )
+        if abs(outside_nearest.time_sec - opportunity.capture_time_sec) >= abs(
+            group_nearest.time_sec - opportunity.capture_time_sec
+        ):
+            continue
+
+        # pass 전체로 찾으면 그룹 밖 footprint가 더 가까운 경우를 찾았다 — 이 경우에도
+        # resolve_attitude_look_point는 반드시 그룹 안의 footprint를 기준으로 계산해야 한다.
+        checked_any = True
+        strip = strip_by_id[opportunity.strip_id]
+        centroid_lat = sum(v.lat for v in strip.geometry.vertices) / len(strip.geometry.vertices)
+        centroid_lon = sum(v.lon for v in strip.geometry.vertices) / len(strip.geometry.vertices)
+
+        look_point = resolve_attitude_look_point(scenario, opportunity)
+        distance_correct = hypot(look_point.lat - centroid_lat, look_point.lon - centroid_lon)
+
+        tilt_offset = opportunity.required_tilt_deg / ATTITUDE_DEG_PER_GROUND_DEG
+        roll_offset = opportunity.required_roll_deg / ATTITUDE_DEG_PER_GROUND_DEG
+        wrong_group_lat = outside_nearest.center_latitude_deg + tilt_offset
+        wrong_group_lon = outside_nearest.center_longitude_deg + roll_offset
+        distance_if_wrong_group = hypot(
+            wrong_group_lat - centroid_lat, wrong_group_lon - centroid_lon
+        )
+
+        assert distance_correct < distance_if_wrong_group
+
+    assert checked_any, "그룹 밖 footprint가 더 가까운 회귀 케이스를 이 seed에서 찾지 못했다"
 
 
 def test_unknown_scale_is_rejected() -> None:

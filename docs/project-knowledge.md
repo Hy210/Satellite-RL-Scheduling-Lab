@@ -67,7 +67,7 @@ pitch를 0으로 고정하더라도 strip이 위경도 축 정렬 사각형이�
 ### 3.3 자세와 off-nadir 근사
 
 **상태:** 가정  
-**마지막 갱신:** 2026-07-06
+**마지막 갱신:** 2026-07-26
 
 프로토타입은 pitch를 `0 deg`로 고정하고 roll과 tilt만 사용한다. 결합 기울기는 다음 값으로 단순화한다.
 
@@ -78,6 +78,10 @@ off_nadir = sqrt(roll^2 + tilt^2)
 이 값은 두 방향의 기울기를 하나의 품질 선호도로 표현하기 위한 근사이며 정밀한 3차원 자세 또는 센서 시선 계산식으로 취급하지 않는다.
 
 물리적으로 지나치게 큰 자세를 차단하기 위해 축별 `-30~30 deg`와 결합 off-nadir `30 deg` 제한을 사용한다. 이 제한도 초기 학습 환경을 위한 프로젝트 파라미터다.
+
+2026-07-26 결과·재생 지도에 실제 조준점을 시각화하는 기능(`rl_core.generator.resolve_attitude_look_point`)을 추가하며 `_attitude_for_time`이 쓰는 `ATTITUDE_DEG_PER_GROUND_DEG = 8.0`(자세 각도 1도당 지상 거리 1/8도로 환산하는 상수)의 근거를 git 이력에서 확인했다. 이 상수는 2026-07-07 가상 ground track/footprint 생성기 도입 커밋(`03e8d65`)에서 `FOOTPRINT_HALF_ALONG_DEG`, `STRIP_ALONG_DEG` 등 다른 가상 지오메트리 상수와 함께 처음 등장했으며, 코드 주석이나 설계 문서 어디에도 8.0이라는 값의 물리적 근거(위성 고도, 센서 화각 등)는 기록되어 있지 않다. 즉 이 값은 "±30도 자세 제한 안에서 그럴듯한 각도가 나오게" 맞춘 임의 상수이며, 실제 위성 물리에서 유도된 값이 아니다.
+
+이 상수는 strip 크기(`STRIP_ALONG_DEG=0.45도`)에 비해 상대적으로 작은 각도(1도 미만)도 무시할 수 없는 지상 거리(1도당 약 13.9km)로 환산해, 지도 시각화에서 "각도는 작은데 strip 대비 상당히 벗어나 보이는" 결과를 만들 수 있다는 것을 확인했다(관찰: 2026-07-26 attitude-target 시각화 작업 중 `order-018-strip-03` 사례). 정밀 자세 모델로 교체할 때는 이 상수와 그 각도-거리 환산 비율도 함께 재검토해야 한다 — 단순 시각화 문제가 아니라 opportunity별 roll/tilt 분포(±27도 clamp 도달 빈도, 평균 off-nadir 등) 자체를 바꾸므로 PPO 재학습 필요 여부도 같이 판단해야 한다.
 
 ### 3.4 자세 전환과 연속 촬영
 
@@ -375,7 +379,7 @@ Priority greedy와 Earliest deadline first가 이 시나리오에서 total_retur
 |---|---|---|
 | 실제 궤도 인터페이스 | 검토 필요 | 가상 opportunity 형식을 실제 궤도 전파 결과와 연결할 때 데이터 계약 검토 필요 |
 | 가상 footprint 생성기 | 관찰 | 20초 샘플 ground track, 회전 strip/footprint polygon 및 access window 기반 opportunity 생성은 구현됨. 브라우저 지도에서 pass 기울기와 strip 방향 재확인 필요 |
-| 정밀 자세 모델 | 검토 필요 | 현재 off-nadir 및 축별 순차 기동은 단순 근사이므로 실제 기체 적용 전 교체 필요 |
+| 정밀 자세 모델 | 검토 필요 | 현재 off-nadir 및 축별 순차 기동은 단순 근사이므로 실제 기체 적용 전 교체 필요. `ATTITUDE_DEG_PER_GROUND_DEG=8.0`은 물리적 근거 없는 임의 상수이며, 교체 시 opportunity의 roll/tilt 분포가 바뀌어 PPO 재학습 필요 여부도 함께 판단해야 한다 |
 | 다중 위성 | 검토 필요 | 위성 두 대 확장 시 충돌, 주문 공유 및 행동 공간 설계 필요 |
 | 구름과 영상 품질 | 검토 필요 | strip별 품질과 불확실성을 관측 및 보상에 반영하는 방법 필요 |
 | 일반화 평가 | 검토 필요 | 여러 시나리오 학습 시 훈련/검증/평가 seed 분리 필요 |
@@ -385,6 +389,7 @@ Priority greedy와 Earliest deadline first가 이 시나리오에서 total_retur
 
 ## 9. 변경 기록
 
+- 2026-07-26: roll/tilt 시각화 기능 구현 중 `ATTITUDE_DEG_PER_GROUND_DEG=8.0`이 물리적 근거 없이 2026-07-07 가상 생성기 도입 시 정해진 임의 상수임을 git 이력으로 확인했고, strip 크기 대비 작지 않은 지상 거리로 환산된다는 것을 관찰해 기록했다.
 - 2026-07-26: 학습·평가 run 생성 API가 scenario artifact의 SHA-256 불일치를 검사하지 않던 gap을 발견해 `_load_valid_scenario_or_api_error`로 수정했고, 모델 파일 추적은 다운로드 API 대신 로컬 경로 규칙 문서화로 충분하다는 판단을 기록했다.
 - 2026-07-23: 정책 비교는 화면이 최신 실행을 추정해 합치는 방식 대신 사용자가 같은 scenario·seed의 완료 EvaluationRun을 명시적으로 선택해 immutable artifact로 고정한다. 각 비교 행에 evaluation run ID를 보존하면 동일 정책을 여러 번 실행했어도 결과와 replay 링크가 다른 실행으로 연결되지 않는다.
 - 2026-07-23: episode 재생은 전체 replay를 브라우저에 다시 계산하거나 한꺼번에 적재하지 않고, episode 요약의 step 수와 direct step 조회를 이용해 현재 step만 읽도록 구성했다. 이 방식은 후보와 action mask 상세는 유지하면서 큰 replay의 초기 화면 비용을 제한한다.

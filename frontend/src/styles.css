@@ -23,7 +23,7 @@ button { font: inherit; }
 .app-nav__link--active { background: #243a59; color: #fff; font-weight: 700; }
 .app-nav__link--disabled { color: #63728a; cursor: not-allowed; }
 .app-nav small { display: block; margin-top: .15rem; }
-.app-content { margin: 0 auto; max-width: 80rem; padding: 3rem 2rem; width: 100%; }
+.app-content { margin: 0 auto; max-width: 96rem; padding: 3rem 2rem; width: 100%; }
 .page-section { display: grid; gap: 1.5rem; }
 .page-heading { align-items: start; display: flex; gap: 2rem; justify-content: space-between; }
 h1 { color: #fff; font-size: clamp(1.7rem, 3vw, 2.25rem); margin: .25rem 0 .65rem; }
@@ -77,9 +77,9 @@ select { background: #141d2c; border: 1px solid #41516b; border-radius: .35rem; 
 .run-status { border-radius: 1rem; font-size: .72rem; font-weight: 700; padding: .22rem .45rem; }.run-status--completed { background: #275842; color: #bcf1d0; }.run-status--running, .run-status--queued, .run-status--stop_requested { background: #27517c; color: #bae0ff; }.run-status--failed { background: #6a303b; color: #ffc3ca; }.run-status--stopped { background: #435063; color: #d9e0eb; }
 .metric-grid { display: grid; gap: .8rem; grid-template-columns: repeat(3, minmax(0, 1fr)); }.metric-card { background: #182335; border: 1px solid #2a3548; border-radius: .55rem; padding: 1rem; }.metric-card span { color: #9eb0ca; display: block; font-size: .78rem; }.metric-card b { display: block; font-size: 1.35rem; margin-top: .35rem; }
 .map-note, .map-legend { color: #9eb0ca; font-size: .9rem; }
-.scenario-map { border: 1px solid #41516b; border-radius: .5rem; height: 32rem; overflow: hidden; width: 100%; z-index: 0; }
+.scenario-map { border: 1px solid #41516b; border-radius: .5rem; height: 42rem; overflow: hidden; width: 100%; z-index: 0; }
 .scenario-map .leaflet-control-attribution { background: rgba(16, 23, 36, .78); color: #b6c3d7; }.scenario-map .leaflet-control-attribution a { color: #78b6ff; }
-.schedule-layout { display: grid; gap: 1rem; grid-template-columns: minmax(17rem, .8fr) minmax(0, 1.2fr); }.schedule-layout .detail-card { min-width: 0; }.schedule-layout .scenario-map { height: 26rem; }
+.schedule-layout { display: grid; gap: 1rem; grid-template-columns: minmax(15rem, .65fr) minmax(0, 1.35fr); }.schedule-layout .detail-card { min-width: 0; }
 .training-form { display: grid; gap: 1rem; }.training-fields { display: grid; gap: .8rem 1rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }.training-field { color: #b6c3d7; display: grid; font-size: .85rem; gap: .35rem; }.training-field input { background: #141d2c; border: 1px solid #41516b; border-radius: .35rem; color: #e6edf8; padding: .5rem; width: 100%; }.metric-chart { background: #141d2c; border: 1px solid #2a3548; border-radius: .4rem; height: 12rem; padding: .75rem; width: 100%; }
 .replay-layout { display: grid; gap: 1rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }.replay-controls { display: flex; flex-wrap: wrap; gap: .45rem; margin-bottom: 1rem; }.replay-controls button, .replay-controls select { font-size: .8rem; padding: .45rem .6rem; }.replay-range { margin: 0 0 1rem; width: 100%; }.replay-selected td { background: #3d3a1d; }
 .comparison-select { display: grid; gap: .5rem; margin: 1rem 0; }.comparison-select label { color: #c7d3e5; }.comparison-best td { background: #244433; }
@@ -96,7 +96,7 @@ select { background: #141d2c; border: 1px solid #41516b; border-radius: .35rem; 
   .detail-grid { grid-template-columns: 1fr; }
   .dashboard-grid { grid-template-columns: 1fr; }.dashboard-card--wide { grid-column: auto; }
   .metric-grid { grid-template-columns: 1fr 1fr; }
-  .schedule-layout { grid-template-columns: 1fr; }.scenario-map { height: 24rem; }
+  .schedule-layout { grid-template-columns: 1fr; }.scenario-map { height: 30rem; }
   .training-fields { grid-template-columns: 1fr; }
   .replay-layout { grid-template-columns: 1fr; }
 }

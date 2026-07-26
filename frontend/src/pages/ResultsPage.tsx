@@ -3,7 +3,7 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 
 import { ApiError } from "../api/client";
 import { getEvaluationResult, getEvaluationStep, getEvaluationTimeline, listCompletedEvaluationRuns, type EvaluationResult, type EvaluationRun, type ReplayStep, type TimelineCapture } from "../api/runs";
-import { getScenario } from "../api/scenarios";
+import { getOpportunityAttitudeTarget, getScenario } from "../api/scenarios";
 import { EmptyState, ErrorState, LoadingState } from "../components/AsyncState";
 import { ScenarioMap } from "../components/ScenarioMap";
 
@@ -52,6 +52,10 @@ function EvaluationSchedule({ runId, scenarioId }: { runId: string; scenarioId: 
   const scenario = useLoad((signal) => getScenario(scenarioId, signal), [scenarioId]);
   const selectedCaptureId = searchParams.get("captureId") ?? undefined;
   const selected = timeline.value?.items.find((item) => item.opportunity_id === selectedCaptureId) ?? timeline.value?.items[0];
+  const attitudeTarget = useLoad(
+    (signal) => (selected ? getOpportunityAttitudeTarget(scenarioId, selected.opportunity_id, signal) : Promise.resolve(null)),
+    [scenarioId, selected?.opportunity_id],
+  );
   const selectCapture = (capture: TimelineCapture) => {
     const next = new URLSearchParams(searchParams); next.set("captureId", capture.opportunity_id); setSearchParams(next);
   };
@@ -66,7 +70,7 @@ function EvaluationSchedule({ runId, scenarioId }: { runId: string; scenarioId: 
     const key = captured === 0 ? "missed" : captured === strips.length ? "completed" : "partial";
     counts[key] += 1; return counts;
   }, { completed: 0, partial: 0, missed: 0 });
-  return <section className="schedule-layout"><div className="detail-card"><h2>24시간 촬영 타임라인</h2><ol className="timeline-list">{timeline.value.items.map((capture) => <li key={capture.opportunity_id}><button className={selected?.opportunity_id === capture.opportunity_id ? "timeline-item timeline-item--active" : "timeline-item"} onClick={() => selectCapture(capture)}><time>{clock(capture.capture_time_sec)}</time><span><code>{capture.strip_id}</code><small>{capture.pass_id} · Roll {capture.roll_deg.toFixed(1)}° · Tilt {capture.tilt_deg.toFixed(1)}°</small></span><b>{signed(capture.reward)}</b></button></li>)}</ol></div><div className="detail-card"><h2>지도 결과</h2><p className="map-legend">테두리: 우선순위 · 채움: 완료(초록) / 부분 완료 주문(주황) / 미촬영(회색) · 주문 {orderStates.completed} 완료, {orderStates.partial} 부분 완료, {orderStates.missed} 미촬영</p><ScenarioMap scenario={evaluatedScenario} selectedPassId={selected?.pass_id} selectedStripId={selected?.strip_id} completedStripIds={completed} onSelectStrip={(stripId) => { const first = timeline.value?.items.find((capture) => capture.strip_id === stripId); if (first) selectCapture(first); }} />{selected ? <CaptureDetail runId={runId} capture={selected} /> : null}</div></section>;
+  return <section className="schedule-layout"><div className="detail-card"><h2>24시간 촬영 타임라인</h2><ol className="timeline-list">{timeline.value.items.map((capture) => <li key={capture.opportunity_id}><button className={selected?.opportunity_id === capture.opportunity_id ? "timeline-item timeline-item--active" : "timeline-item"} onClick={() => selectCapture(capture)}><time>{clock(capture.capture_time_sec)}</time><span><code>{capture.strip_id}</code><small>{capture.pass_id} · Roll {capture.roll_deg.toFixed(1)}° · Tilt {capture.tilt_deg.toFixed(1)}°</small></span><b>{signed(capture.reward)}</b></button></li>)}</ol></div><div className="detail-card"><h2>지도 결과</h2><p className="map-legend">테두리: 우선순위 · 채움: 완료(초록) / 부분 완료 주문(주황) / 미촬영(회색) · 주문 {orderStates.completed} 완료, {orderStates.partial} 부분 완료, {orderStates.missed} 미촬영</p><ScenarioMap scenario={evaluatedScenario} selectedPassId={selected?.pass_id} selectedStripId={selected?.strip_id} completedStripIds={completed} attitudeTarget={attitudeTarget.value ?? undefined} captureTimeSec={selected?.capture_time_sec} onSelectStrip={(stripId) => { const first = timeline.value?.items.find((capture) => capture.strip_id === stripId); if (first) selectCapture(first); }} />{selected ? <CaptureDetail runId={runId} capture={selected} /> : null}</div></section>;
 }
 
 export function ResultDetailPage() {

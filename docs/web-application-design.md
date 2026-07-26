@@ -406,6 +406,8 @@ data/
 
 2026-07-20에는 `recover_interrupted_runs()`를 추가했다. 단일 worker supervisor는 기존 worker가 없음을 확인한 뒤 시작할 때만 이를 호출해 남아 있는 `running` 실행을 `failed`로, `stop_requested` 실행을 `stopped`로 기록한다. Backend 프로세스만 재시작한 경우에는 호출하지 않으므로 별도 worker가 계속 실행 중일 때 상태를 잘못 바꾸지 않는다. 자동 재개는 초기 범위에서 제외하고, 사용자는 보존된 checkpoint를 새 run으로 명시적으로 재시작한다.
 
+2026-07-26 `tools/import_offline_training_run.py`를 추가했다. `tools/stage14_*.py` 같은 실험 스크립트는 `train_maskable_ppo()`를 `storage` 인자 없이 호출해 `data/runs/<run-id>/`에 산출물만 남기고 `StorageRepository`/SQLite에는 등록하지 않는다 — 그래서 이런 오프라인 실험 결과는 재학습 없이는 `/results`, `/comparisons` GUI에 나타나지 않는다. 이 도구는 이미 계산된 `run.json`, `config.json`, `metrics/final-evaluation.json`, `metrics/replay.json`을 읽어 `TrainingRun`과 `EvaluationRun`/`EvaluationSummary`로 등록하고 checkpoint/model/metrics 디렉터리를 지정한 data root의 `runs/<run-id>/`로 복사한다.
+
 ## 9. 실행 상태 모델
 
 학습과 평가 실행은 다음 상태를 가진다.
@@ -485,6 +487,8 @@ Backend가 반환하는 상태, 보상, action mask 및 결과 값은 RL core의
 `POST /api/training-runs/{run_id}/stop`은 process 강제 종료가 아닌 cooperative cancellation 요청이다. queued run은 즉시 `stopped`, running run은 `stop_requested`가 되며 요청은 idempotent하다. worker의 PPO callback이 다음 training step 경계에서 상태를 관찰해 마지막 checkpoint를 저장하고 학습을 멈춘 뒤 `stopped`를 기록한다. 중지된 run은 불완전한 정책을 최종 결과로 보이지 않도록 final model·final evaluation·replay를 생성하지 않는다. 없는 run은 `404 training_run_not_found`, terminal run 중지 요청은 `409 training_run_not_stoppable`으로 반환한다.
 
 `GET /api/training-runs/{run_id}`는 SQLite의 `TrainingRun`을 polling용으로 반환한다. `GET /api/training-runs/{run_id}/detail`은 동일 run의 검증된 config snapshot, checkpoint 파일명 목록과 final model/final evaluation 존재 여부를 반환해 새로고침 후 제어 화면을 복구한다. `EvaluationRun.source_training_run_id` → 이 endpoint의 config snapshot·checkpoint 목록·`final_model_available`까지가 API로 보장하는 추적 경로이며, 실제 모델 파일은 API로 내려받지 않고 `TrainingRun.artifact_directory`와 `model/final-model.zip` 저장 규칙을 조합해 로컬 파일시스템에서 찾는다(단일 사용자 로컬 프로토타입이므로 별도 다운로드 endpoint는 두지 않는다). `GET /api/training-runs/{run_id}/metrics`는 `{ run, items, offset, limit, total }` 형식으로 학습 곡선을 반환한다. Backend는 worker process의 메모리가 아닌 저장된 run과 `training-metrics.jsonl`만 조회한다. 첫 평가 전에는 빈 목록이 정상이며, 실행 중 마지막 JSONL 행이 아직 끝나지 않았으면 잠시 보류한다. 완료·중지·실패 run의 손상된 metrics 행은 `409 training_metrics_invalid`으로 표시한다.
+
+2026-07-26 `GET /api/scenarios/{scenario_id}/opportunities/{opportunity_id}/attitude-target`을 추가했다. 결과·재생 화면 지도에서 선택한 촬영의 roll/tilt가 실제로 가리키는 지상 지점(위경도 한 점)을 반환해, 위성 위치(가장 가까운 ground track point)에서 그 지점까지 보조선을 그려 자세가 해당 strip을 향하는지 시각적으로 검증할 수 있게 한다. 계산은 `rl_core.generator.resolve_attitude_look_point`가 전담하며, 현재는 `_attitude_for_time`이 쓰는 선형 근사(가장 가까운 footprint 중심 기준 각도 환산)를 역산한 근사치다. 이 근사 모델이 더 정밀한 계산으로 교체되어도 endpoint 계약(위경도 한 점)과 Frontend는 그대로 유지되도록, 계산식을 Frontend에 옮기지 않았다. 없는 scenario·opportunity는 각각 `404 scenario_not_found`, `404 opportunity_not_found`이다.
 
 ## 11. 검증과 오류 표시
 

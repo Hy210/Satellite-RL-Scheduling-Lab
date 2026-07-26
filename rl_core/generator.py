@@ -552,6 +552,47 @@ def _attitude_for_time(
     return _clamp(roll, -27.0, 27.0), _clamp(tilt, -27.0, 27.0)
 
 
+def resolve_attitude_look_point(scenario: Scenario, opportunity: Opportunity) -> GeoPoint:
+    """opportunity의 roll/tilt가 실제로 가리키는 지상 지점을 근사한다.
+
+    현재는 `_attitude_for_time`이 쓰는 선형 근사(가장 가까운 footprint 중심에서
+    `ATTITUDE_DEG_PER_GROUND_DEG`로 각도를 환산)를 그대로 역산한다. 자세 계산이 정밀
+    모델로 바뀌면 이 함수만 갱신하면 되고, 지점 하나만 반환하는 API 계약과 이를 그리는
+    프론트엔드는 그대로 유지된다 — 그래서 이 계산을 프론트엔드에 옮기지 않는다.
+
+    `_attitude_for_time`은 이 opportunity를 만든 access window의 footprint 그룹
+    (`AccessWindow.footprint_ids`) 안에서만 최근접 footprint를 찾는다. 같은 pass에
+    다른 strip의 access window가 여러 개 있을 수 있으므로, pass 전체에서 최근접을
+    찾으면 전혀 다른 strip 그룹의 footprint를 잘못 골라 지점이 크게 어긋날 수 있다.
+    그래서 여기서도 반드시 같은 그룹으로 검색 범위를 제한한다.
+    """
+
+    footprint_by_id = {sample.footprint_id: sample for sample in scenario.footprint_samples}
+    source_window = next(
+        (
+            window
+            for window in scenario.access_windows
+            if window.access_window_id == opportunity.source_access_window_id
+        ),
+        None,
+    )
+    candidates = (
+        [footprint_by_id[footprint_id] for footprint_id in source_window.footprint_ids]
+        if source_window is not None
+        else [
+            sample for sample in scenario.footprint_samples if sample.pass_id == opportunity.pass_id
+        ]
+    )
+    nearest = min(
+        candidates, key=lambda sample: abs(sample.time_sec - opportunity.capture_time_sec)
+    )
+    tilt_offset = opportunity.required_tilt_deg / ATTITUDE_DEG_PER_GROUND_DEG
+    roll_offset = opportunity.required_roll_deg / ATTITUDE_DEG_PER_GROUND_DEG
+    look_lat = nearest.center_latitude_deg + tilt_offset
+    look_lon = nearest.center_longitude_deg + roll_offset
+    return GeoPoint(lat=_clamp(look_lat, -89.9, 89.9), lon=_clamp(look_lon, -179.9, 179.9))
+
+
 def _polygons_intersect(left: Polygon, right: Polygon) -> bool:
     axes = _polygon_axes(left) + _polygon_axes(right)
     return all(_projections_overlap(_project(left, axis), _project(right, axis)) for axis in axes)

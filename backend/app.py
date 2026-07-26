@@ -17,10 +17,12 @@ from backend.workers import (
     TrainingWorkerStartError,
     TrainingWorkerSupervisor,
 )
+from rl_core.generator import resolve_attitude_look_point
 from rl_core.models import (
     EpisodeReplay,
     EvaluationRun,
     EvaluationSummary,
+    GeoPoint,
     MaskablePPOTrainingConfig,
     Opportunity,
     OpportunityKind,
@@ -1021,6 +1023,29 @@ def create_app(
             limit=limit,
             total=len(items),
         )
+
+    @app.get(
+        "/api/scenarios/{scenario_id}/opportunities/{opportunity_id}/attitude-target",
+        response_model=GeoPoint,
+        responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
+    )
+    def get_opportunity_attitude_target(scenario_id: str, opportunity_id: str) -> GeoPoint:
+        """opportunity의 roll/tilt가 실제로 가리키는 지상 지점을 반환한다.
+
+        계산식은 `rl_core.generator.resolve_attitude_look_point`가 전담한다 — 자세
+        계산이 정밀 모델로 바뀌어도 이 endpoint 계약(위경도 한 점)은 그대로 유지된다.
+        """
+
+        scenario = _load_scenario_or_api_error(_repository(app), scenario_id)
+        opportunity = next(
+            (item for item in scenario.opportunities if item.opportunity_id == opportunity_id),
+            None,
+        )
+        if opportunity is None:
+            raise ApiError(
+                404, "opportunity_not_found", f"Unknown opportunity_id: {opportunity_id}"
+            )
+        return resolve_attitude_look_point(scenario, opportunity)
 
     return app
 

@@ -27,14 +27,17 @@ export type Scenario = {
 
 export type GeoPoint = { lat: number; lon: number };
 export type Polygon = { vertices: GeoPoint[] };
+/** 주문 geometry는 strip polygon들을 감싸는 축 정렬 bounding box다(`rl_core/generator.py`의 `_bounding_rectangle`). */
+export type Rectangle = { min_lat: number; min_lon: number; max_lat: number; max_lon: number };
 export type Order = {
   order_id: string; name: string; priority: Priority; request_start_sec: number;
-  request_end_sec: number; geometry: Polygon;
+  request_end_sec: number; geometry: Rectangle;
 };
 export type Strip = { strip_id: string; order_id: string; sequence: number; geometry: Polygon };
 export type Opportunity = {
   opportunity_id: string; order_id: string; strip_id: string; pass_id: string; kind: OpportunityKind;
   capture_time_sec: number; required_roll_deg: number; required_tilt_deg: number;
+  source_access_window_id: string | null;
 };
 export type GroundTrackPoint = {
   point_id: string; pass_id: string; sample_index: number; time_sec: number;
@@ -167,4 +170,16 @@ export function listOpportunities(
 
 export function validateScenario(scenarioId: string, signal?: AbortSignal): Promise<ScenarioValidation> {
   return getJson<ScenarioValidation>(`/api/scenarios/${encodeURIComponent(scenarioId)}/validation`, signal);
+}
+
+/** opportunity의 roll/tilt가 실제로 가리키는 지상 지점을 backend 계산 결과 그대로 받는다.
+ * 계산식(현재는 근사 모델)은 백엔드만 알고 있고, 나중에 정밀 모델로 바뀌어도 이 함수와
+ * 반환 형식은 그대로 유지된다. */
+export function getOpportunityAttitudeTarget(
+  scenarioId: string, opportunityId: string, signal?: AbortSignal,
+): Promise<GeoPoint> {
+  return getJson<GeoPoint>(
+    `/api/scenarios/${encodeURIComponent(scenarioId)}/opportunities/${encodeURIComponent(opportunityId)}/attitude-target`,
+    signal,
+  );
 }

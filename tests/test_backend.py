@@ -120,6 +120,44 @@ def test_order_strip_and_opportunity_endpoints_filter_and_paginate(tmp_path: Pat
     assert opportunities.json()["items"][0]["off_nadir_deg"] >= 0.0
 
 
+def test_opportunity_attitude_target_returns_resolved_point(tmp_path: Path) -> None:
+    repository = StorageRepository(tmp_path / "data")
+    scenario = generate_scenario(seed=20260707, size="tiny")
+    repository.save_scenario(scenario)
+    client = TestClient(create_app(repository=repository))
+    opportunity = scenario.opportunities[0]
+
+    response = client.get(
+        f"/api/scenarios/{scenario.scenario_id}/opportunities/{opportunity.opportunity_id}"
+        "/attitude-target"
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert -90.0 <= payload["lat"] <= 90.0
+    assert -180.0 <= payload["lon"] <= 180.0
+
+
+def test_opportunity_attitude_target_not_found_cases(tmp_path: Path) -> None:
+    repository = StorageRepository(tmp_path / "data")
+    scenario = generate_scenario(seed=20260707, size="tiny")
+    repository.save_scenario(scenario)
+    client = TestClient(create_app(repository=repository))
+    opportunity_id = scenario.opportunities[0].opportunity_id
+
+    missing_scenario = client.get(
+        f"/api/scenarios/missing-scenario/opportunities/{opportunity_id}/attitude-target"
+    )
+    missing_opportunity = client.get(
+        f"/api/scenarios/{scenario.scenario_id}/opportunities/missing-opportunity/attitude-target"
+    )
+
+    assert missing_scenario.status_code == 404
+    assert missing_scenario.json()["error"]["code"] == "scenario_not_found"
+    assert missing_opportunity.status_code == 404
+    assert missing_opportunity.json()["error"]["code"] == "opportunity_not_found"
+
+
 def test_collection_query_validation_and_empty_filtered_page(tmp_path: Path) -> None:
     repository = StorageRepository(tmp_path / "data")
     scenario = generate_scenario(seed=1, size="tiny")

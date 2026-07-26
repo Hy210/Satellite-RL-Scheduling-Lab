@@ -1,10 +1,13 @@
-"""단계 14 마지막 통합 검증: full 규모에서 Maskable PPO 학습 방향성과 모든 기준
-정책(4개 휴리스틱 + CP-SAT)을 비교한다.
+"""Maskable PPO 학습 방향성과 모든 기준 정책(4개 휴리스틱 + CP-SAT)을 비교한다.
+
+원래 단계 14 마지막 통합 검증(full 규모)을 위해 작성했으나, `--scenario-size`로
+규모를 바꿔 재사용할 수 있게 일반화했다 — 예: full 규모 학습이 수렴하는지 보기 전에
+같은 설계로 small 규모에서 훨씬 긴 학습이 깨끗하게 수렴하는지 먼저 저비용으로 확인하는 용도.
 
 사전에 정한 합격선은 없다 — CP-SAT이 OPTIMAL을 못 찾거나 PPO가 기준선을 못 넘어도
-"실패"가 아니라 "관찰된 결과"로 기록하는 것이 목적이다. 처리량 벤치마크
-(`tools/stage14_scale_benchmark.py`)에서 측정한 것과 같은 하이퍼파라미터를 그대로 써야
-그 처리량(steps/sec) 기반 시간 예산 추정이 유효하다.
+"실패"가 아니라 "관찰된 결과"로 기록하는 것이 목적이다. full 규모로 실행할 때는 처리량
+벤치마크(`tools/stage14_scale_benchmark.py`)에서 측정한 것과 같은 하이퍼파라미터를 그대로
+써야 그 처리량(steps/sec) 기반 시간 예산 추정이 유효하다.
 """
 
 from __future__ import annotations
@@ -26,7 +29,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 SCENARIO_SEED = 20260707
-SCENARIO_SIZE = "full"
+DEFAULT_SCENARIO_SIZE = "full"
 RANDOM_VALID_EVAL_SEEDS = (101, 102, 103)
 DETERMINISTIC_BASELINE_EVAL_SEED = 101
 CP_SAT_SEED = 17
@@ -45,11 +48,15 @@ def main() -> None:
     """CLI 인자를 읽고 검증을 실행한 뒤 사람이 읽을 요약을 출력한다."""
 
     args = _parse_args()
-    benchmark_root = args.artifact_root / f"stage14-full-direction-check-{_timestamp()}"
+    benchmark_root = (
+        args.artifact_root / f"stage14-{args.scenario_size}-direction-check-{_timestamp()}"
+    )
     summary = run_check(
         benchmark_root=benchmark_root,
+        scenario_size=args.scenario_size,
         cp_sat_time_limit_sec=args.cp_sat_time_limit_sec,
         ppo_total_timesteps=args.ppo_total_timesteps,
+        checkpoint_interval=args.checkpoint_interval,
     )
     summary_path = benchmark_root / "summary.json"
     summary_path.write_text(
@@ -62,10 +69,12 @@ def main() -> None:
 def run_check(
     *,
     benchmark_root: Path,
+    scenario_size: str,
     cp_sat_time_limit_sec: float,
     ppo_total_timesteps: int,
+    checkpoint_interval: int,
 ) -> dict[str, Any]:
-    """baseline 4종 → CP-SAT → Maskable PPO 순서로 full 시나리오를 평가·학습한다."""
+    """baseline 4종 → CP-SAT → Maskable PPO 순서로 지정 규모 시나리오를 평가·학습한다."""
 
     from rl_core.generator import generate_scenario
     from rl_core.models import MaskablePPOTrainingConfig
@@ -80,7 +89,7 @@ def run_check(
     from rl_core.training import train_maskable_ppo
 
     benchmark_root.mkdir(parents=True, exist_ok=True)
-    scenario = generate_scenario(seed=SCENARIO_SEED, size=SCENARIO_SIZE)
+    scenario = generate_scenario(seed=SCENARIO_SEED, size=scenario_size)
 
     random_valid_runs = [
         _common_payload(asdict(evaluate_policy(RandomValidPolicy(), scenario, seed=seed)))
@@ -123,7 +132,7 @@ def run_check(
             n_steps=N_STEPS,
             batch_size=BATCH_SIZE,
             n_epochs=N_EPOCHS,
-            checkpoint_interval=CHECKPOINT_INTERVAL,
+            checkpoint_interval=checkpoint_interval,
             evaluation_interval=EVALUATION_INTERVAL,
             artifact_root=benchmark_root / "ppo-runs",
         )
@@ -152,7 +161,7 @@ def run_check(
         "check": {
             "created_at": datetime.now().isoformat(timespec="seconds"),
             "scenario_seed": SCENARIO_SEED,
-            "scenario_size": SCENARIO_SIZE,
+            "scenario_size": scenario_size,
             "scenario_id": scenario.scenario_id,
             "artifact_root": str(benchmark_root),
         },
@@ -162,7 +171,7 @@ def run_check(
             "batch_size": BATCH_SIZE,
             "n_epochs": N_EPOCHS,
             "evaluation_interval": EVALUATION_INTERVAL,
-            "checkpoint_interval": CHECKPOINT_INTERVAL,
+            "checkpoint_interval": checkpoint_interval,
         },
         "baseline": baseline,
         "cp_sat": cp_sat_payload,
@@ -209,6 +218,12 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--artifact-root", type=Path, default=Path("data/runs"))
     parser.add_argument(
+        "--scenario-size",
+        choices=("tiny", "small", "full"),
+        default=DEFAULT_SCENARIO_SIZE,
+        help="Scenario scale to generate and evaluate/train against.",
+    )
+    parser.add_argument(
         "--cp-sat-time-limit-sec",
         type=float,
         default=CP_SAT_DEFAULT_TIME_LIMIT_SEC,
@@ -219,6 +234,12 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=PPO_DEFAULT_TOTAL_TIMESTEPS,
         help="PPO total timesteps per learning seed.",
+    )
+    parser.add_argument(
+        "--checkpoint-interval",
+        type=int,
+        default=CHECKPOINT_INTERVAL,
+        help="Timesteps between saved checkpoints (increase for long runs to limit disk I/O).",
     )
     return parser.parse_args()
 

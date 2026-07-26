@@ -2,13 +2,13 @@
 
 ## 현재 상태
 
-- 마지막 갱신일: 2026-07-26
+- 마지막 갱신일: 2026-07-27
 - 작업 디렉터리: `D:\HY\01. Developer\Project\NSICPS_RL_Scheduling`
 - 프로젝트 상태: 구현 계획 단계 0~9 완료, 단계 2A, 7A 및 13 완료
 - 현재 구현 단계: 단계 14 통합 검증과 문서 정리 (검증 항목 10/10 완료, 문서 0/7)
-- 진행 중 작업: 없음
+- 진행 중 작업: 없음 (2026-07-26 변경분 lint·pytest·frontend build 검증 완료, 커밋 대기)
 - Blocker: 없음
-- Git 상태: 2026-07-25 CP-SAT baseline, 저장 계층, Backend, Frontend 변경을 `7d62fc7`로, 2026-07-26 CP-SAT worker 오류 코드 정리·통합 테스트·`.gitignore` 정리를 `567bac7`로, 단계 14 1차 배치를 `6dfadec`로, 2차 배치를 `895f3c4`로, 3차 배치(full 규모 성능·메모리 벤치마크)를 `2571c5e`로 커밋·push 완료. 이번 세션 변경(단계 14 4차 배치: full 규모 RL·모든 기준 정책 비교)은 커밋 대기.
+- Git 상태: 2026-07-25 CP-SAT baseline, 저장 계층, Backend, Frontend 변경을 `7d62fc7`로, 2026-07-26 CP-SAT worker 오류 코드 정리·통합 테스트·`.gitignore` 정리를 `567bac7`로, 단계 14 1차 배치를 `6dfadec`로, 2차 배치를 `895f3c4`로, 3차 배치(성능·메모리 벤치마크)를 `2571c5e`로, 4차 배치(full 규모 RL·모든 기준 정책 비교)를 `b625337`로 커밋·push 완료. 2026-07-26 변경(결과·재생 지도 attitude-target 시각화, 주문 지도 geometry Frontend 타입 버그 수정, `stage14_full_scale_direction_check.py` 규모 일반화, 오프라인 학습 산출물 등록 도구 `tools/import_offline_training_run.py` 추가)은 lint/테스트/frontend build 검증과 커밋이 남아 있다.
 - Git 원격: `https://github.com/Hy210/Satellite-RL-Scheduling-Lab.git`
 
 ## 현재 목표
@@ -161,7 +161,8 @@
 - `tools/scenario_viewer.html`: 시나리오 JSON을 불러와 pass별 ground track, footprint, strip 및 opportunity를 확인하는 임시 지도 뷰어
 - `tools/stage6_benchmark.py`: 단계 6 Maskable PPO와 Random valid 반복 seed 성능 비교 CLI
 - `tools/stage14_scale_benchmark.py`: tiny/small/full 규모별 Maskable PPO 학습 처리량·peak 메모리 벤치마크 CLI
-- `tools/stage14_full_scale_direction_check.py`: full 규모 Maskable PPO와 4개 baseline 휴리스틱·CP-SAT 비교 CLI
+- `tools/stage14_full_scale_direction_check.py`: Maskable PPO와 4개 baseline 휴리스틱·CP-SAT을 지정 규모(tiny/small/full)에서 비교하는 CLI
+- `tools/import_offline_training_run.py`: 오프라인 학습 산출물을 `StorageRepository`에 등록해 GUI에서 조회 가능하게 하는 CLI
 - `rl_core/simulator.py`: 결정론적 이벤트 시뮬레이터
 - `rl_core/policies.py`: 기준 정책과 공통 평가기
 - `rl_core/gym_env.py`: Gymnasium 및 Maskable PPO 연결 wrapper
@@ -320,10 +321,20 @@
 - `.venv\Scripts\python.exe -m pytest -q`: 128개 테스트 통과 (외부 Starlette/httpx deprecation warning 1건, 코드 변경 없어 테스트 수 동일)
 - `.venv\Scripts\python.exe -m ruff check .` / `ruff format --check .`: 통과(신규 `tools/stage14_full_scale_direction_check.py` 포함, `tools/`는 mypy 대상 아님)
 - 이번 배치도 `tools/`와 문서만 변경했고 Frontend 파일은 건드리지 않아 `npm run build` 재확인은 생략했다.
+- 2026-07-26 결과·재생 지도에 선택한 촬영의 roll/tilt가 실제로 가리키는 지상 지점을 시각화하는 기능을 추가했다. `rl_core/generator.py`에 `resolve_attitude_look_point()`를 추가해 `_attitude_for_time`의 선형 근사를 역산했고, 구현 중 pass 전체에서 최근접 footprint를 찾으면 다른 strip의 footprint를 잘못 골라 지점이 어긋나는 문제를 발견해 반드시 opportunity를 만든 access window의 footprint 그룹 안에서만 찾도록 제한했다.
+- `GET /api/scenarios/{scenario_id}/opportunities/{opportunity_id}/attitude-target` API와, `ScenarioMap`의 위성 위치→조준점 보조선·footprint tooltip을 추가했다. strip/pass를 선택했을 때 지도가 전체 시나리오가 아니라 선택 대상 위주로 확대되도록 fitBounds 로직도 함께 수정했다(이전에는 선택해도 항상 전체 시나리오 기준으로 확대돼 있었다).
+- Frontend `Order.geometry` TypeScript 타입이 실제 API 응답(Rectangle: min/max lat/lon)과 달리 Polygon(vertices)으로 잘못 선언돼 있던 것을 발견해 `Rectangle` 타입과 전용 렌더링 함수로 수정했다. `rl_core/models.py`와 `docs/data-format.md`는 이미 Rectangle로 정확했으므로 Frontend 코드만의 버그였다.
+- `tools/stage14_full_scale_direction_check.py`를 full 규모 전용에서 `--scenario-size`/`--checkpoint-interval` 인자로 tiny/small/full 규모를 재사용할 수 있도록 일반화했다.
+- `tools/import_offline_training_run.py`를 추가했다. `tools/stage14_*.py` 같은 오프라인 실험 스크립트가 `StorageRepository` 없이 만든 학습 산출물을 재학습 없이 `TrainingRun`/`EvaluationRun`으로 등록해 `/results`, `/comparisons` GUI에서 볼 수 있게 한다.
+- `resolve_attitude_look_point()`가 순방향 자세 공식과 정확히 일치하는지, 같은 pass의 다른 strip 그룹을 침범하지 않는지 확인하는 회귀 테스트와, 신규 attitude-target API의 정상/404 테스트를 추가했다.
+- `.venv\Scripts\python.exe -m pytest -q`: 132개 테스트 통과 (외부 Starlette/httpx deprecation warning 1건)
+- `.venv\Scripts\python.exe -m ruff check .` / `ruff format --check .`: 통과
+- `.venv\Scripts\python.exe -m mypy`: 통과
+- `npm run build`(frontend): 통과
 
 ## 다음 세션의 첫 작업
 
-[구현 계획의 단계 14](docs/implementation-plan.md) 통합 검증 10/10이 모두 끝났다. 남은 문서 7개 항목(설치 및 개발 환경, 로컬 실행 방법, 테스트 방법, 시나리오 데이터 형식, API 계약, 학습 및 평가 실행 방법, 알려진 제한사항)을 정리해 단계 14와 프로젝트 전체를 완료한다. 루트 `README.md`가 현재 설치·검증 명령만 있고 로컬 실행 방법(uvicorn/Vite 구동 등)이 비어 있다는 점부터 확인한다.
+2026-07-26 변경분(attitude-target 시각화, Frontend geometry 타입 버그 수정, stage14 도구 일반화, `tools/import_offline_training_run.py`)은 검증을 마쳤으니 커밋·push한다. 이어서 [구현 계획의 단계 14](docs/implementation-plan.md) 통합 검증 10/10에 이어 남은 문서 7개 항목(설치 및 개발 환경, 로컬 실행 방법, 테스트 방법, 시나리오 데이터 형식, API 계약, 학습 및 평가 실행 방법, 알려진 제한사항)을 정리해 단계 14와 프로젝트 전체를 완료한다. 루트 `README.md`가 현재 설치·검증 명령만 있고 로컬 실행 방법(uvicorn/Vite 구동 등)이 비어 있다는 점부터 확인한다.
 
 ## 관련 문서
 
