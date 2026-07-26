@@ -5,10 +5,10 @@
 - 마지막 갱신일: 2026-07-26
 - 작업 디렉터리: `D:\HY\01. Developer\Project\NSICPS_RL_Scheduling`
 - 프로젝트 상태: 구현 계획 단계 0~9 완료, 단계 2A, 7A 및 13 완료
-- 현재 구현 단계: 단계 14 통합 검증과 문서 정리 (검증 항목 9/10 완료, 문서 0/7)
+- 현재 구현 단계: 단계 14 통합 검증과 문서 정리 (검증 항목 10/10 완료, 문서 0/7)
 - 진행 중 작업: 없음
 - Blocker: 없음
-- Git 상태: 2026-07-25 CP-SAT baseline, 저장 계층, Backend, Frontend 변경을 `7d62fc7`로, 2026-07-26 CP-SAT worker 오류 코드 정리·통합 테스트·`.gitignore` 정리를 `567bac7`로, 단계 14 1차 배치를 `6dfadec`로, 2차 배치(시나리오·정책 재현성, return/reward breakdown 일치)를 `895f3c4`로 커밋·push 완료. 이번 세션 변경(단계 14 3차 배치: full 규모 성능·메모리 벤치마크)은 커밋 대기.
+- Git 상태: 2026-07-25 CP-SAT baseline, 저장 계층, Backend, Frontend 변경을 `7d62fc7`로, 2026-07-26 CP-SAT worker 오류 코드 정리·통합 테스트·`.gitignore` 정리를 `567bac7`로, 단계 14 1차 배치를 `6dfadec`로, 2차 배치를 `895f3c4`로, 3차 배치(full 규모 성능·메모리 벤치마크)를 `2571c5e`로 커밋·push 완료. 이번 세션 변경(단계 14 4차 배치: full 규모 RL·모든 기준 정책 비교)은 커밋 대기.
 - Git 원격: `https://github.com/Hy210/Satellite-RL-Scheduling-Lab.git`
 
 ## 현재 목표
@@ -140,6 +140,10 @@
 - 단계 14 3차 배치: `tools/stage14_scale_benchmark.py` 신설 — tiny/small/full 규모의 Maskable PPO 학습 처리량·peak 메모리를 calibration(단발 rollout)과 적응형 본측정(남은 시간 예산 기반)으로 측정, 측정마다 별도 spawn 자식 프로세스로 격리하고 부모가 `psutil`로 peak RSS를 polling
 - dev 의존성에 `psutil` 추가(Windows에는 `resource` 모듈이 없고 `tracemalloc`은 PyTorch 네이티브 메모리를 못 잡아 RSS 측정에 필요)
 - 실측 결과: full 규모 메모리는 tiny 대비 최대 7% 차이(규모와 무상관), 처리량은 tiny 대비 약 17배 느림 — 병목은 신경망이 아니라 시뮬레이터 쪽으로 추정
+- 단계 14 4차 배치(마지막 통합 검증 항목): `tools/stage14_full_scale_direction_check.py` 신설 — full 시나리오에서 Maskable PPO(2 seed, 각 30,000 timesteps)를 4개 baseline 휴리스틱 전부와 CP-SAT(`time_limit_sec=900`)과 처음으로 비교
+- 실측 결과: PPO median(98.42)이 Random valid median(97.30)보다는 나았지만 나머지 세 휴리스틱(100.35~101.44)과 CP-SAT 최적해(104.59, `OPTIMAL`)에는 못 미쳤다. 두 seed의 학습 곡선 양상이 서로 달라(한 seed는 81→101.5까지 상승 후 99.3으로 하락, 다른 seed는 초반부터 평평) seed 편차가 크다는 점도 확인했다
+- CP-SAT은 full 규모에서도 15분 제한 훨씬 이전에 `OPTIMAL`·gap 0.0에 도달해, 조합폭발 우려는 이번 seed에서는 근거가 없었다
+- 첫 실행 중 컴퓨터가 예기치 않게 재부팅되어(Windows 이벤트 로그 확인 결과 BSOD·메모리 고갈 징후 없이 원인 불명 — 이번 작업과의 연관 근거 없음) 중단됐고, 처음부터 재실행해 완료했다
 
 ## 주요 파일
 
@@ -157,6 +161,7 @@
 - `tools/scenario_viewer.html`: 시나리오 JSON을 불러와 pass별 ground track, footprint, strip 및 opportunity를 확인하는 임시 지도 뷰어
 - `tools/stage6_benchmark.py`: 단계 6 Maskable PPO와 Random valid 반복 seed 성능 비교 CLI
 - `tools/stage14_scale_benchmark.py`: tiny/small/full 규모별 Maskable PPO 학습 처리량·peak 메모리 벤치마크 CLI
+- `tools/stage14_full_scale_direction_check.py`: full 규모 Maskable PPO와 4개 baseline 휴리스틱·CP-SAT 비교 CLI
 - `rl_core/simulator.py`: 결정론적 이벤트 시뮬레이터
 - `rl_core/policies.py`: 기준 정책과 공통 평가기
 - `rl_core/gym_env.py`: Gymnasium 및 Maskable PPO 연결 wrapper
@@ -251,8 +256,8 @@
 - 후보 128개 제한은 full 시나리오 생성 후 분포와 잘림 영향을 검증해야 한다.
 - 10초 opportunity 양자화는 가상 시나리오용 가정이므로 실제 궤도 데이터 연결 시 재검토해야 한다.
 - 2026-07-26 측정 결과 메모리는 규모와 무관했지만(최대 7% 차이) full 규모 처리량은 tiny 대비 약 17배 느렸다(`tools/stage14_scale_benchmark.py`, `docs/project-knowledge.md` 6.11절). 병목은 신경망이 아니라 시뮬레이터 쪽으로 추정되며 정확한 원인은 후속 profiling이 필요하다.
-- 단계 6 엄격 검증에서 tiny 시나리오는 통과했지만 개선 폭은 작고 완료 strip/order 수는 Random valid와 같았다. small/full 시나리오와 greedy 정책 비교에서 성능 의미를 다시 확인해야 한다.
-- CP-SAT baseline은 tiny/small 시나리오에서 replay 검증을 통과했다. 실제 대규모 입력에서 time limit이 발생할 때의 성능·bound 해석은 후속 분석이 필요하다.
+- 단계 6 엄격 검증에서 tiny 시나리오는 통과했지만 개선 폭은 작고 완료 strip/order 수는 Random valid와 같았다. 2026-07-26 full 규모에서 재확인한 결과(`docs/project-knowledge.md` 6.12절) PPO median은 Random valid보다는 나았지만 Priority greedy/EDF/Priority-efficiency greedy 세 휴리스틱과 CP-SAT 최적해에는 못 미쳤다 — seed에 따라 학습 곡선 양상이 크게 달랐다(한 seed는 뚜렷한 상승 후 하락, 다른 seed는 평평).
+- CP-SAT baseline은 tiny/small 시나리오에서 replay 검증을 통과했다. 2026-07-26 full 규모(seed 20260707, opportunity 약 3,447개)에서도 `time_limit_sec=900` 훨씬 이전에(스모크 테스트 기준 5초 만에도) `OPTIMAL`·gap 0.0에 도달해, 조합폭발로 시간 제한에 걸릴 것이라는 우려는 이번 seed에서는 근거가 없었다 — 다만 단일 seed 관찰이라 일반화하지 않는다.
 - 실제 worker process의 PID/lock, heartbeat 및 checkpoint 선택 재시작 API는 단계 9·12에서 구현해야 한다. 현재는 worker 부재가 확인된 supervisor 시작 시 복구를 호출하는 계약만 확정했다.
 - 주문, strip, opportunity 전용 조회와 기준 정책 실행, 학습 worker 제어 및 결과/replay API는 단계 9에서 완료했다.
 - 단계 10은 현재 Backend 조회 API만 사용하는 읽기 전용 시나리오 탐색 화면으로 진행한다. scenario/order/environment/reward 수정은 version 또는 복제본, 검증, 파생 artifact 재생성 및 run snapshot 정책을 함께 확정한 뒤 추가한다.
@@ -309,10 +314,16 @@
 - `.venv\Scripts\python.exe -m pytest -q`: 128개 테스트 통과 (외부 Starlette/httpx deprecation warning 1건, 코드 변경 없어 테스트 수 동일)
 - `.venv\Scripts\python.exe -m ruff check .` / `ruff format --check .`: 통과(신규 `tools/stage14_scale_benchmark.py` 포함, `tools/`는 mypy 대상 아님 — `pyproject.toml`의 `[tool.mypy].packages`)
 - 이번 배치는 `tools/`, `pyproject.toml`(psutil 의존성), 문서만 변경했고 Frontend 파일은 건드리지 않아 `npm run build` 재확인은 생략했다.
+- 2026-07-26 단계 14 4차 배치(마지막 통합 검증 항목 "RL과 모든 기준 정책 비교")를 완료하고 [구현 계획](docs/implementation-plan.md) 단계 14 통합 검증 체크박스 10/10을 반영했다 — 통합 검증 전체 완료.
+- `.venv\Scripts\python.exe tools/stage14_full_scale_direction_check.py`: full 시나리오(seed 20260707)에서 PPO median 98.42(Random valid median 97.30 초과, Priority greedy 등 100.35~101.44 및 CP-SAT 최적해 104.59에는 미달), CP-SAT `OPTIMAL`·gap 0.0(15분 제한 훨씬 이전 도달). 상세는 `docs/project-knowledge.md` 6.12절.
+- 첫 실행 중 컴퓨터가 예기치 않게 재부팅되어 중단(Windows 이벤트 로그로 원인 조사, BSOD·메모리 고갈 징후 없이 원인 불명, 이번 작업과의 연관 근거 없음)됐고, 처음부터 재실행해 완료했다.
+- `.venv\Scripts\python.exe -m pytest -q`: 128개 테스트 통과 (외부 Starlette/httpx deprecation warning 1건, 코드 변경 없어 테스트 수 동일)
+- `.venv\Scripts\python.exe -m ruff check .` / `ruff format --check .`: 통과(신규 `tools/stage14_full_scale_direction_check.py` 포함, `tools/`는 mypy 대상 아님)
+- 이번 배치도 `tools/`와 문서만 변경했고 Frontend 파일은 건드리지 않아 `npm run build` 재확인은 생략했다.
 
 ## 다음 세션의 첫 작업
 
-[구현 계획의 단계 14](docs/implementation-plan.md) 통합 검증 마지막 항목 "RL과 모든 기준 정책 비교"에 착수한다. `docs/project-knowledge.md` 6.11절의 실측 처리량(full 규모 약 29.3 steps/sec)을 근거로 학습 시간 예산을 잡고, small 규모부터 시작해 full로 확장한다(학습 곡선 추세 + Random valid/Priority greedy 기준선 비교로 "완전한 수렴"이 아니라 "방향이 맞는지"를 확인하는 단계 6과 같은 방법론을 재사용). 이 항목이 끝나면 문서 7개 항목(설치·로컬 실행·테스트 방법, 데이터 형식, API 계약, 학습/평가 실행 방법, 알려진 제한사항)을 한 번에 정리한다.
+[구현 계획의 단계 14](docs/implementation-plan.md) 통합 검증 10/10이 모두 끝났다. 남은 문서 7개 항목(설치 및 개발 환경, 로컬 실행 방법, 테스트 방법, 시나리오 데이터 형식, API 계약, 학습 및 평가 실행 방법, 알려진 제한사항)을 정리해 단계 14와 프로젝트 전체를 완료한다. 루트 `README.md`가 현재 설치·검증 명령만 있고 로컬 실행 방법(uvicorn/Vite 구동 등)이 비어 있다는 점부터 확인한다.
 
 ## 관련 문서
 

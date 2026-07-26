@@ -328,6 +328,29 @@ PPO median return은 `5.326453530248241`, Random valid median return은 `5.32539
 
 실무적 함의: full 규모에서 `tools/stage6_benchmark.py` 수준(50,000 timesteps) 학습 1회는 대략 28~30분이 걸린다(29.3 steps/sec 기준). "RL과 모든 기준 정책 비교"(단계 14 나머지 항목)에서 full 규모 학습 시간 예산을 잡을 때 이 수치를 근거로 쓴다.
 
+### 6.12 full 규모 RL·모든 기준 정책 비교 관찰
+
+**상태:** 관찰
+**마지막 갱신:** 2026-07-26
+
+`tools/stage14_full_scale_direction_check.py`로 seed `20260707`의 full 시나리오에서 Maskable PPO(2 seed, 각 30,000 timesteps)를 4개 baseline 휴리스틱과 CP-SAT(`time_limit_sec=900`) 전부와 비교했다 — full 규모에서 이 비교가 이뤄진 것은 이번이 처음이다. total return 기준 순위:
+
+| 정책 | total_return |
+|---|---|
+| CP-SAT (`OPTIMAL`, gap 0.0) | 104.59 |
+| Priority-efficiency greedy | 101.44 |
+| Priority greedy / Earliest deadline first (정확히 동률) | 100.35 |
+| **Maskable PPO (2 seed median)** | **98.42** |
+| Random valid (3 seed median) | 97.30 |
+
+**PPO는 Random valid보다는 일관되게 나았지만, 세 휴리스틱과 CP-SAT 최적해에는 못 미쳤다.** 두 seed의 학습 곡선(`evaluation_interval=2,000`, 15개 지점)이 서로 다른 양상을 보였다 — seed 23은 81.3(초반)에서 101.5(22,000~24,000 timesteps 부근, 이 시점엔 Priority-efficiency greedy를 일시적으로 앞섰음)까지 뚜렷하게 상승했다가 후반(28,000~30,000)에 99.3으로 다소 내려오며 마무리됐다. seed 11은 초반부터 이미 baseline 근처(97.5)에서 시작해 30,000 timesteps 내내 큰 변화 없이 평평했다. 즉 **학습이 방향성을 보인다는 신호는 뚜렷하지만(seed 23), seed에 따라 편차가 크고 30,000 timesteps로는 아직 최상위 휴리스틱·CP-SAT을 안정적으로 넘어서지 못한다.**
+
+CP-SAT은 우려와 달리 15분 제한 훨씬 이전에(스모크 테스트에서 5초 제한으로도) `OPTIMAL`·gap 0.0에 도달했다 — full 규모(opportunity 약 3,447개)에서도 조합폭발로 시간 제한에 걸릴 것이라는 사전 우려는 이번 시나리오·seed 조합에서는 근거가 없었다. 다만 이는 단일 seed·단일 시나리오 관찰이라 일반화하지 않는다.
+
+Priority greedy와 Earliest deadline first가 이 시나리오에서 total_return까지 정확히 동일하게 나온 것은 우연이거나(두 기준이 이 시나리오에서 같은 선택 순서를 만든 경우), 시나리오 구조상 두 정렬 기준이 자주 일치하기 때문일 수 있다 — 근거 확인이 더 필요해 결론 내리지 않는다.
+
+이 결과로 `docs/implementation-plan.md` 단계 14 "RL과 모든 기준 정책 비교" 완료 조건("RL 정책이 최소한 Random valid와 정량적으로 비교된다")을 충족했다 — PPO가 모든 기준을 이겨야 한다는 합격선은 두지 않았고, 실제 정량 비교가 처음으로 이뤄졌다는 사실 자체가 완료 조건이다.
+
 ## 7. 용어집
 
 | 용어 | 프로젝트에서의 의미 |
