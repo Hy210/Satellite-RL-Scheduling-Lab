@@ -537,12 +537,19 @@ def create_app(
         repository.save_evaluation_run(queued)
         try:
             _training_supervisor(app).start_cp_sat(run_id, request.time_limit_sec)
-        except Exception as error:
+        except TrainingWorkerBusyError as error:
             repository.save_evaluation_run(
                 queued.model_copy(update={"status": RunStatus.FAILED, "error_message": str(error)})
             )
             raise ApiError(
                 409, "execution_worker_busy", "A local execution worker is already running."
+            ) from error
+        except TrainingWorkerStartError as error:
+            repository.save_evaluation_run(
+                queued.model_copy(update={"status": RunStatus.FAILED, "error_message": str(error)})
+            )
+            raise ApiError(
+                500, "execution_worker_start_failed", "Execution worker could not be started."
             ) from error
         return EvaluationRunResponse(run=queued)
 

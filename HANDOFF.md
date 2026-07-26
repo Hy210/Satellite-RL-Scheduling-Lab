@@ -2,13 +2,13 @@
 
 ## 현재 상태
 
-- 마지막 갱신일: 2026-07-23
+- 마지막 갱신일: 2026-07-26
 - 작업 디렉터리: `D:\HY\01. Developer\Project\NSICPS_RL_Scheduling`
-- 프로젝트 상태: 구현 계획 단계 0~9 완료, 단계 2A 및 단계 7A 완료
-- 현재 구현 단계: 단계 13 Episode 재생 및 정책 비교 (PPO/CP-SAT 비교 확장 대기)
+- 프로젝트 상태: 구현 계획 단계 0~9 완료, 단계 2A, 7A 및 13 완료
+- 현재 구현 단계: 단계 14 통합 검증과 문서 정리 (착수 전)
 - 진행 중 작업: 없음
 - Blocker: 없음
-- Git 상태: 작업 트리에 CP-SAT baseline, 저장 계층, Backend 및 문서 갱신 변경 있음
+- Git 상태: 2026-07-25 CP-SAT baseline, 저장 계층, Backend, Frontend 변경을 `7d62fc7`로 커밋·push 완료. 이번 세션 변경(CP-SAT worker 오류 코드 정리, 통합 테스트, `.gitignore` 정리, 문서/HANDOFF 갱신)은 커밋 대기.
 - Git 원격: `https://github.com/Hy210/Satellite-RL-Scheduling-Lab.git`
 
 ## 현재 목표
@@ -126,6 +126,9 @@
 - 단일 evaluation replay를 예약된 `evaluation` episode ID로 노출하고 원본 `ReplayStep`을 pagination으로 제공
 - episode/step 조회에도 기존 summary/replay artifact 소유자·종류·SHA-256·Pydantic·run metadata 검증 경계 재사용
 - `.venv\Scripts\python.exe -m pytest tests/test_backend.py -q`: 17개 테스트 통과 (외부 Starlette/httpx deprecation warning 1건)
+- `POST /api/cp-sat-evaluation-runs`의 worker busy/시작 실패 오류를 `POST /api/training-runs`와 동일하게 `409`/`500`으로 구분
+- CP-SAT 평가 run queue/오류/scenario 404 backend 통합 테스트, PPO·CP-SAT 단일 실행 슬롯 공유 단위 테스트, PPO 최종 평가·CP-SAT 기준해 통합 `PolicyComparison` 테스트 추가
+- `StorageRepository`가 사용하는 `data/` 하위 전체 경로를 가리도록 `.gitignore`를 `data/*`/`!data/README.md`로 정리
 
 ## 주요 파일
 
@@ -259,7 +262,7 @@
 - `/results/{run_id}/replay`에 저장된 evaluation episode 재생 화면을 구현했다. step 직접 조회, 처음/이전/재생/정지/다음/마지막, 속도 조절, state/action 후보/action mask/reward breakdown 및 촬영 action 지도 동기화를 제공한다.
 - `PolicyComparisonRun` metadata와 immutable comparison artifact 저장·조회 API를 추가했다. 현재는 동일 scenario·seed의 완료 EvaluationRun을 명시적으로 선택해 baseline 결과를 비교한다.
 - `/comparisons` 정책 비교 화면을 추가했다. scenario·seed별 완료 EvaluationRun을 선택해 비교 artifact를 만들고, 지표 표의 각 행에서 원본 결과와 replay로 이동한다. artifact에 `evaluation_run_id`를 보존해 같은 정책의 반복 실행도 정확히 연결한다.
-- PPO 최종 평가를 원본 training run에 연결된 EvaluationRun으로 저장하고, CP-SAT도 PPO와 단일 실행 슬롯을 공유하는 worker 기반 EvaluationRun으로 저장하도록 확장 중이다.
+- PPO 최종 평가는 원본 training run에 연결된 EvaluationRun으로, CP-SAT은 PPO와 단일 실행 슬롯을 공유하는 worker 기반 EvaluationRun으로 저장한다. `POST /api/cp-sat-evaluation-runs`의 worker 시작 오류를 `POST /api/training-runs`와 동일하게 `409 execution_worker_busy`/`500 execution_worker_start_failed`로 구분하도록 수정했다. 2026-07-26 두 EvaluationRun이 `GET /api/evaluation-runs`에 함께 나열되고 `POST /api/policy-comparisons`로 묶일 수 있음을 backend 통합 테스트와 실제 uvicorn/Vite dev server curl 검증으로 확인해 단계 13을 완료했다.
 - `/training` 화면에 CP-SAT seed·시간 제한 입력과 실행 버튼을 추가했다. 진행 중인 PPO 또는 CP-SAT run이 있으면 두 실행을 모두 막고 상태를 표시한다.
 - `.venv\Scripts\python.exe -m pytest -q`: 105개 테스트 통과 (외부 Starlette/httpx deprecation warning 1건)
 - Ruff lint·format, Mypy 및 Frontend `npm run build` 통과
@@ -273,10 +276,18 @@
 - 2026-07-23 Frontend `npm run build` 통과 (정책 비교 화면 및 run 연결 포함)
 - `.venv\Scripts\python.exe -m mypy`: 통과
 - `npm install` 감사는 high 취약점 2건을 보고했다. 자동 수정은 `--force`와 major 변경을 요구하므로 적용하지 않았고, Frontend 의존성 갱신 시 별도 검토한다.
+- 2026-07-25 CP-SAT baseline, 저장 계층, Backend, Frontend 변경을 커밋 `7d62fc7`로 GitHub `origin/main`에 push했다.
+- 2026-07-26 `POST /api/cp-sat-evaluation-runs`의 worker 시작 오류 코드를 PPO와 동일하게 `TrainingWorkerBusyError → 409`, `TrainingWorkerStartError → 500`으로 구분했다.
+- CP-SAT 평가 run의 queue/worker 시작 오류/scenario 404 backend 통합 테스트 3건과, `TrainingWorkerSupervisor`가 PPO·CP-SAT 사이 단일 실행 슬롯을 실제로 공유하는지 확인하는 단위 테스트 1건, PPO 최종 평가와 CP-SAT 기준해가 같은 `PolicyComparison`으로 묶이는지 확인하는 통합 테스트 1건을 추가했다.
+- 실제 uvicorn backend(포트 8000)와 Vite dev server(포트 5173)를 띄우고, seed 20260726 tiny 시나리오로 실제 CP-SAT run과 PPO 학습 run을 curl로 실행해 완료를 확인했다. `GET /api/evaluation-runs?status=completed`에 `maskable_ppo`와 `cp_sat_baseline`이 함께 나열됐고, Vite `/api` 프록시를 통한 `POST /api/policy-comparisons` 호출로 두 정책을 포함한 비교 artifact가 생성됨을 확인했다 (`best_policy_name: cp_sat_baseline`). 검증에 사용한 `data/` 산출물은 검증 후 삭제했다.
+- `StorageRepository`가 실제로 사용하는 `data/scenarios/`, `data/comparisons/`, `data/evaluations/`, `data/scheduler.sqlite3`가 기존 `.gitignore`(구 `data/scenarios/generated/` 등 이전 경로 기준)에 빠져 있던 것을 실서버 검증 중 발견해, `data/*`/`!data/README.md`로 단순화했다.
+- `.venv\Scripts\python.exe -m pytest -q`: 111개 테스트 통과 (외부 Starlette/httpx deprecation warning 1건)
+- `.venv\Scripts\python.exe -m ruff check .` / `ruff format --check .` / `mypy`: 통과
+- 단계 13 완료 조건(재생, action 선택 가능 여부 확인, 동일 시나리오 RL·기준 정책 비교)을 모두 충족해 [구현 계획](docs/implementation-plan.md) 단계 13을 완료 처리했다.
 
 ## 다음 세션의 첫 작업
 
-[구현 계획의 단계 13](docs/implementation-plan.md)의 PPO·CP-SAT EvaluationRun 색인에 대한 API 통합 테스트와 Frontend 비교 흐름 검증을 완료한다.
+[구현 계획의 단계 14](docs/implementation-plan.md) 통합 검증과 문서 정리에 착수한다. 통합 검증 체크리스트(동일 seed 재현, 정책 평가 재현, 촬영 제약 준수, return/reward breakdown 일치, 데이터 모델·API·GUI 단위 일치, 모델·설정 추적 가능성, worker 실패 처리, 잘못된 시나리오 학습 차단, full 시나리오 성능/메모리, RL·모든 기준 정책 비교)부터 항목별로 확인하고, 이번 세션의 CP-SAT/PPO 통합 테스트·`.gitignore` 정리·문서 갱신을 하나의 커밋으로 만들어 push한다.
 
 ## 관련 문서
 

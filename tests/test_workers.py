@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from backend.workers import run_cp_sat_worker, run_training_worker
+import pytest
+
+from backend.workers import (
+    TrainingWorkerBusyError,
+    TrainingWorkerSupervisor,
+    run_cp_sat_worker,
+    run_training_worker,
+)
 from rl_core.generator import generate_scenario
 from rl_core.models import EvaluationRun, MaskablePPOTrainingConfig, RunStatus, TrainingRun
 from rl_core.storage import StorageRepository
@@ -102,3 +109,21 @@ def test_cp_sat_worker_saves_completed_evaluation_artifacts(tmp_path: Path) -> N
         repository.load_json_artifact(Path(completed.result_path))["policy_name"]
         == "cp_sat_baseline"
     )
+
+
+class _AliveProcess:
+    """`is_alive()`가 항상 참인 최소 process 대역으로, 실제 spawn 없이 실행 중 상태를 흉내낸다."""
+
+    def is_alive(self) -> bool:
+        return True
+
+
+def test_supervisor_shares_single_slot_between_ppo_and_cp_sat_workers(tmp_path: Path) -> None:
+    # PPO 학습과 CP-SAT 평가는 같은 로컬 실행 슬롯(_lock/_process)을 공유해야 한다.
+    supervisor = TrainingWorkerSupervisor(tmp_path / "data")
+    supervisor._process = _AliveProcess()  # type: ignore[assignment]
+
+    with pytest.raises(TrainingWorkerBusyError):
+        supervisor.start("other-training-run")
+    with pytest.raises(TrainingWorkerBusyError):
+        supervisor.start_cp_sat("other-cp-sat-run", 10.0)

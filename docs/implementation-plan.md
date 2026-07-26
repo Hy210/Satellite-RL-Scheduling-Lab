@@ -532,15 +532,15 @@ full   : 주문 100개, pass 30개
 - [x] action mask와 사유 표시
 - [x] 선택 action 및 reward breakdown 표시
 - [x] 지도와 타임라인 동기화
-- [ ] RL 및 기준 정책 지표 비교
+- [x] RL 및 기준 정책 지표 비교
 - [x] 서로 다른 완료 EvaluationRun 비교
-- [ ] PPO 최종 평가와 CP-SAT 기준해를 worker 기반 EvaluationRun으로 색인
+- [x] PPO 최종 평가와 CP-SAT 기준해를 worker 기반 EvaluationRun으로 색인
 
 2026-07-23 1차 구현은 `/results/{run_id}/replay`에서 단일 `evaluation` episode를 재생한다. episode 요약의 step 수를 범위로 사용하고 `GET /api/results/{run_id}/episodes/evaluation/steps/{step_index}`으로 선택 step만 읽는다. 재생은 저장 artifact를 재계산하지 않으며, 선택 action·state 전후·reward breakdown·후보 및 action mask 사유를 표시한다. 촬영 action이면 대응하는 pass/strip을 지도에 강조한다.
 
-같은 날 추가한 `/comparisons` 화면은 완료된 `EvaluationRun`을 scenario·seed별로 묶고 사용자가 선택한 run 집합으로 `POST /api/policy-comparisons`를 호출한다. 생성된 immutable `PolicyComparison`은 total return, priority score, 완료 strip/order, captures를 표로 보여 주며, 각 행은 artifact에 보존한 `evaluation_run_id`로 정확한 결과·replay 화면으로 이동한다. 현재 정식 `EvaluationRun`으로 색인되는 것은 기준 정책뿐이므로, PPO 최종 평가와 CP-SAT 결과를 같은 비교 화면에 넣는 작업은 남아 있다.
+같은 날 추가한 `/comparisons` 화면은 완료된 `EvaluationRun`을 scenario·seed별로 묶고 사용자가 선택한 run 집합으로 `POST /api/policy-comparisons`를 호출한다. 생성된 immutable `PolicyComparison`은 total return, priority score, 완료 strip/order, captures를 표로 보여 주며, 각 행은 artifact에 보존한 `evaluation_run_id`로 정확한 결과·replay 화면으로 이동한다.
 
-PPO 최종 평가와 CP-SAT 기준해는 모두 공통 summary·replay artifact와 completed `EvaluationRun`으로 색인해야 한다. CP-SAT은 full 규모에서 HTTP 요청을 오래 점유할 수 있으므로 PPO worker와 하나의 로컬 실행 슬롯을 공유하는 optimization worker로 분리한다.
+PPO 최종 평가와 CP-SAT 기준해는 모두 공통 summary·replay artifact와 completed `EvaluationRun`으로 색인된다. PPO 최종 평가는 학습 run 완료 시 `source_training_run_id`를 채운 `EvaluationRun`으로 저장되고(`rl_core/training.py`), CP-SAT은 `POST /api/cp-sat-evaluation-runs`가 PPO worker와 하나의 로컬 실행 슬롯(`TrainingWorkerSupervisor._lock`/`_process`)을 공유하는 `run_cp_sat_worker`로 실행된다(`backend/workers.py`). `POST /api/training-runs`와 동일하게 worker busy/start 실패를 `409 execution_worker_busy`/`500 execution_worker_start_failed`로 구분한다(`backend/app.py`). 2026-07-26 backend 통합 테스트로 PPO 최종 평가와 CP-SAT 결과가 `GET /api/evaluation-runs`에 함께 나열되고 `POST /api/policy-comparisons`로 같은 비교 artifact에 묶일 수 있음을 확인했고, 실제 uvicorn/Vite dev server를 띄워 동일 흐름을 curl로 재검증했다(`tests/test_backend.py::test_policy_comparison_combines_ppo_final_evaluation_and_cp_sat_baseline`, `tests/test_workers.py::test_supervisor_shares_single_slot_between_ppo_and_cp_sat_workers`).
 
 #### 완료 조건
 

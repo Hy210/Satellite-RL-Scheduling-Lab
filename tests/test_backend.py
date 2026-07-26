@@ -8,10 +8,12 @@ import pytest
 from starlette.testclient import TestClient
 
 from backend.app import API_VERSION, create_app
-from backend.workers import TrainingWorkerBusyError, TrainingWorkerStartError
+from backend.workers import TrainingWorkerBusyError, TrainingWorkerStartError, run_cp_sat_worker
 from rl_core.generator import generate_scenario
 from rl_core.models import EvaluationRun, MaskablePPOTrainingConfig, RunStatus, TrainingRun
+from rl_core.optimization import CP_SAT_POLICY_NAME
 from rl_core.storage import StorageRepository
+from rl_core.training import train_maskable_ppo
 
 
 def test_health_version_and_empty_scenario_list(tmp_path: Path) -> None:
@@ -516,6 +518,86 @@ def test_training_run_worker_start_errors_are_recorded(
     assert stored_run.error_message == str(worker_error)
 
 
+def test_cp_sat_evaluation_run_queues_and_starts_worker(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = StorageRepository(tmp_path / "data")
+    scenario = generate_scenario(seed=1, size="tiny")
+    repository.save_scenario(scenario)
+    app = create_app(repository=repository)
+    client = TestClient(app)
+    started: list[tuple[str, float]] = []
+    monkeypatch.setattr(
+        app.state.training_supervisor,
+        "start_cp_sat",
+        lambda run_id, time_limit_sec: started.append((run_id, time_limit_sec)),
+    )
+
+    response = client.post(
+        "/api/cp-sat-evaluation-runs",
+        json={"scenario_id": scenario.scenario_id, "seed": 17, "time_limit_sec": 5.0},
+    )
+
+    assert response.status_code == 202
+    run = response.json()["run"]
+    assert run["policy_name"] == CP_SAT_POLICY_NAME
+    assert run["status"] == "queued"
+    assert started == [(run["run_id"], 5.0)]
+    stored_run = repository.load_evaluation_run(run["run_id"])
+    assert stored_run.scenario_id == scenario.scenario_id
+    assert stored_run.seed == 17
+
+
+@pytest.mark.parametrize(
+    ("worker_error", "expected_status_code", "expected_code"),
+    [
+        (TrainingWorkerBusyError("busy"), 409, "execution_worker_busy"),
+        (TrainingWorkerStartError("start failed"), 500, "execution_worker_start_failed"),
+    ],
+)
+def test_cp_sat_evaluation_run_worker_start_errors_are_recorded(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    worker_error: RuntimeError,
+    expected_status_code: int,
+    expected_code: str,
+) -> None:
+    repository = StorageRepository(tmp_path / "data")
+    scenario = generate_scenario(seed=1, size="tiny")
+    repository.save_scenario(scenario)
+    app = create_app(repository=repository)
+    client = TestClient(app)
+    monkeypatch.setattr("backend.app.uuid4", lambda: SimpleNamespace(hex="cp-sat-error"))
+
+    def raise_worker_error(_: str, __: float) -> None:
+        raise worker_error
+
+    monkeypatch.setattr(app.state.training_supervisor, "start_cp_sat", raise_worker_error)
+    response = client.post(
+        "/api/cp-sat-evaluation-runs",
+        json={"scenario_id": scenario.scenario_id, "seed": 17, "time_limit_sec": 5.0},
+    )
+
+    stored_run = repository.load_evaluation_run("evaluation-cp-sat-cp-sat-error")
+    assert response.status_code == expected_status_code
+    assert response.json()["error"]["code"] == expected_code
+    assert stored_run.status == RunStatus.FAILED
+    assert stored_run.error_message == str(worker_error)
+
+
+def test_cp_sat_evaluation_run_scenario_not_found(tmp_path: Path) -> None:
+    client = TestClient(create_app(data_root=tmp_path / "data"))
+
+    response = client.post(
+        "/api/cp-sat-evaluation-runs",
+        json={"scenario_id": "missing-scenario", "seed": 17, "time_limit_sec": 5.0},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "scenario_not_found"
+
+
 def test_training_stop_request_transitions_and_rejects_terminal_runs(tmp_path: Path) -> None:
     repository = StorageRepository(tmp_path / "data")
     scenario = generate_scenario(seed=1, size="tiny")
@@ -687,3 +769,56 @@ def test_policy_comparison_persists_selected_same_seed_evaluations(tmp_path: Pat
     }
     loaded = client.get(f"/api/policy-comparisons/{payload['comparison']['comparison_id']}")
     assert loaded.json() == payload
+
+
+def test_policy_comparison_combines_ppo_final_evaluation_and_cp_sat_baseline(
+    tmp_path: Path,
+) -> None:
+    # 단계 13: PPO 최종 평가와 CP-SAT 기준해가 같은 worker 기반 EvaluationRun으로 색인되어
+    # 하나의 PolicyComparison에서 비교 가능해야 한다.
+    repository = StorageRepository(tmp_path / "data")
+    scenario = generate_scenario(seed=1, size="tiny")
+    repository.save_scenario(scenario)
+
+    cp_sat_run = EvaluationRun(
+        run_id="cp-sat-combined",
+        scenario_id=scenario.scenario_id,
+        policy_name=CP_SAT_POLICY_NAME,
+        seed=17,
+        status=RunStatus.QUEUED,
+    )
+    repository.save_evaluation_run(cp_sat_run)
+    run_cp_sat_worker(str(repository.data_root), cp_sat_run.run_id, 10.0)
+
+    ppo_config = MaskablePPOTrainingConfig(
+        total_timesteps=8,
+        learning_seed=11,
+        evaluation_seed=17,
+        n_steps=4,
+        batch_size=4,
+        artifact_root=repository.data_root / "runs",
+    )
+    train_maskable_ppo(scenario, ppo_config, run_id="ppo-combined", storage=repository)
+
+    client = TestClient(create_app(repository=repository))
+    listed = client.get(
+        "/api/evaluation-runs",
+        params={"status": "completed", "scenario_id": scenario.scenario_id},
+    )
+    listed_ids = {item["run_id"] for item in listed.json()["items"]}
+    assert {cp_sat_run.run_id, "evaluation-ppo-ppo-combined"} <= listed_ids
+
+    response = client.post(
+        "/api/policy-comparisons",
+        json={
+            "scenario_id": scenario.scenario_id,
+            "seed": 17,
+            "evaluation_run_ids": [cp_sat_run.run_id, "evaluation-ppo-ppo-combined"],
+        },
+    )
+
+    assert response.status_code == 201
+    assert {item["policy_name"] for item in response.json()["result"]["entries"]} == {
+        CP_SAT_POLICY_NAME,
+        "maskable_ppo",
+    }

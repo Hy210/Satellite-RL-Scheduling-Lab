@@ -478,7 +478,7 @@ Backend가 반환하는 상태, 보상, action mask 및 결과 값은 RL core의
 
 `POST /api/policy-comparisons`는 `{ scenario_id, seed, evaluation_run_ids }`를 받고 선택한 모든 run이 완료 상태이며 같은 scenario·seed인지 검증한 뒤 `201`과 비교 metadata·artifact를 반환한다. 비교 artifact는 선택 당시의 요약과 replay를 다시 검증해 저장하므로, 화면이 임의의 최신 run을 자동으로 합치지 않는다. `GET /api/policy-comparisons/{comparison_id}`도 색인 소유자·SHA-256·Pydantic 계약을 검증하며, 누락·손상 artifact는 `409 policy_comparison_invalid`으로 구분한다.
 
-`POST /api/cp-sat-evaluation-runs`는 CP-SAT 평가를 직접 기다리지 않고 queued `EvaluationRun`을 `202`로 반환한다. CP-SAT worker는 PPO 학습 worker와 단일 로컬 실행 슬롯을 공유하며, 완료 시 동일한 결과·지도·replay·비교 화면에서 읽는 summary와 replay artifact를 저장한다.
+`POST /api/cp-sat-evaluation-runs`는 CP-SAT 평가를 직접 기다리지 않고 queued `EvaluationRun`을 `202`로 반환한다. CP-SAT worker는 PPO 학습 worker와 단일 로컬 실행 슬롯을 공유하며, 완료 시 동일한 결과·지도·replay·비교 화면에서 읽는 summary와 replay artifact를 저장한다. `POST /api/training-runs`와 동일하게 이미 다른 worker가 실행 중이면 `409 execution_worker_busy`, process 시작 실패면 failed run을 남기고 `500 execution_worker_start_failed`를 반환한다. 완료된 CP-SAT `EvaluationRun`은 PPO 최종 평가와 마찬가지로 `GET /api/evaluation-runs`에 노출되므로 `POST /api/policy-comparisons`가 둘을 구분 없이 같은 비교 artifact로 묶을 수 있다.
 
 `POST /api/training-runs`는 `{ scenario_id, config }`을 받고 `202 Accepted`와 queued `TrainingRun`을 반환한다. Backend는 요청의 저장 경로를 신뢰하지 않고 artifact root를 `data/runs`로 고정한 config snapshot을 먼저 저장한다. 그 다음 단일 `TrainingWorkerSupervisor`가 별도 non-daemon spawn process를 시작하며, worker는 SQLite와 artifact에서 run·scenario·config를 다시 읽어 `train_maskable_ppo()`를 실행한다. 따라서 HTTP 요청 연결이 끝나도 학습은 계속된다. 이미 worker가 실행 중이면 `409 training_worker_busy`, process 시작 실패면 failed run을 남기고 `500 training_worker_start_failed`를 반환한다. Backend 재시작만으로 `recover_interrupted_runs()`를 호출하지 않아 살아 있는 별도 worker를 실패 처리하지 않는다.
 
