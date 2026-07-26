@@ -562,7 +562,7 @@ PPO 최종 평가와 CP-SAT 기준해는 모두 공통 summary·replay artifact�
 - [x] 모델과 설정의 추적 가능성
 - [x] 학습 worker 실패 처리
 - [x] 잘못된 시나리오의 학습 차단
-- [ ] full 시나리오의 성능과 메모리 확인
+- [x] full 시나리오의 성능과 메모리 확인
 - [ ] RL과 모든 기준 정책 비교
 
 2026-07-26 1차 배치는 아래 4개 항목을 완료했다.
@@ -578,7 +578,9 @@ PPO 최종 평가와 CP-SAT 기준해는 모두 공통 summary·replay artifact�
 - **동일 정책 평가 결과 재현**: 4개 baseline 정책은 `tests/test_policies.py::test_policy_evaluation_is_reproducible`를 마찬가지로 전체 규모로 확장했다. Maskable PPO는 같은 모델을 두 번 평가해 완전히 같은 결과가 나오는지 직접 확인하는 `tests/test_training.py::test_maskable_ppo_evaluation_is_reproducible`을 추가했다(기존에는 reload-후 재평가 비교로만 간접 확인됐다). CP-SAT은 `solver.parameters.random_seed`를 고정해 두었음에도 실제 재현성을 검증한 테스트가 전혀 없던 gap을 발견해 `tests/test_optimization.py::test_cp_sat_baseline_is_reproducible`을 추가했다.
 - **return과 reward breakdown 일치**: 기존에 baseline 4종만 두 형태(step reward 합, 구성요소 합) 모두로 검증돼 있었다. Maskable PPO에 step reward 합 assertion을, CP-SAT에 구성요소 합 assertion을 추가해 두 정책 유형도 대칭적으로 커버했다.
 
-남은 2개 통합 검증 항목(full 규모 성능·메모리, RL·전체 기준 정책 비교)과 문서 7개 항목은 결과 의존적이거나 더 큰 작업 단위라 후속 세션에서 진행한다.
+2026-07-26 3차 배치는 "full 시나리오의 성능과 메모리 확인"을 완료했다. `tools/stage14_scale_benchmark.py`로 tiny/small/full을 같은 하이퍼파라미터로 측정한 결과, 메모리는 규모와 뚜렷한 상관이 없었지만(최대 7% 차이) 처리량은 full이 tiny 대비 약 17배 느렸다. 상세 수치와 해석은 `docs/project-knowledge.md` 6.11절 참고. 정해둔 합격선은 없었으므로 통과/실패 판정 대신 실측치를 기록하는 것으로 완료 조건을 충족했다.
+
+남은 1개 통합 검증 항목("RL과 모든 기준 정책 비교")과 문서 7개 항목은 결과 의존적이거나 더 큰 작업 단위라 후속 세션에서 진행한다.
 
 #### 문서
 

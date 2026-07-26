@@ -315,6 +315,19 @@ PPO median return은 `5.326453530248241`, Random valid median return은 `5.32539
 
 모델·설정의 추적 가능성은 `EvaluationRun.source_training_run_id`부터 `GET /api/training-runs/{run_id}/detail`의 config snapshot·checkpoint 목록까지는 API로 완전히 보장되지만, 실제 모델 파일(`.zip`)을 가리키는 API는 의도적으로 두지 않았다. 이 프로젝트는 로컬 단일 사용자 프로토타입이라 운영자가 `data/` 파일시스템에 직접 접근할 수 있으므로, `TrainingRun.artifact_directory` + 고정된 저장 규칙(`model/final-model.zip`)을 문서화하는 것으로 추적 가능성 요건을 충족한다고 판단했다. 다중 사용자·원격 배포로 확장하면 이 가정을 재검토해야 한다.
 
+### 6.11 full 규모 Maskable PPO 학습의 처리량·메모리 관찰
+
+**상태:** 관찰
+**마지막 갱신:** 2026-07-26
+
+`tools/stage14_scale_benchmark.py`로 seed `20260707`의 tiny/small/full 시나리오를 같은 하이퍼파라미터(`n_steps=256, batch_size=64, n_epochs=5`, CPU 고정)로 측정한 결과, **메모리는 규모에 따라 뚜렷하게 늘지 않았지만(peak RSS가 tiny 733MB, small 381MB, full 811MB로 규모와 단조 증가하지 않음 — 최대 7% 차이), 처리량은 full이 tiny 대비 약 17배 느렸다**(본측정 기준 tiny 493.9 steps/sec, full 29.3 steps/sec; 짧은 calibration 단발 측정에서도 16.6배로 일관되게 재현됨).
+
+관측 공간이 시나리오 규모와 무관하게 고정 크기(strip 2,000칸, 후보 128칸 padding, `rl_core/models.py:163-164`)로 padding되므로 신경망 forward/backward 비용은 규모와 거의 무관할 것으로 예상되고, 실제로 메모리는 그 예상과 일치했다. 반면 처리량 저하는 신경망이 아니라 **시뮬레이터 쪽 병목**(매 step마다 실제 strip/opportunity 수에 비례해 유효 후보를 계산하는 비용, 또는 학습 종료마다 1회 필수로 도는 전체 episode 평가가 full 규모에서 훨씬 오래 걸리는 것)일 가능성이 높다고 본다. 정확한 원인은 profiling이 더 필요해 이번 측정 범위 밖으로 남겨둔다.
+
+방법론적 한계: 256-step 단발 calibration은 학습 호출 끝에 항상 붙는 고정 비용(최종 평가 1회)의 비중이 짧은 실행일수록 커서 실제 처리량을 상당히 과소평가한다(tiny 기준 calibration 148.9 vs 본측정 493.9 steps/sec). 적응형 예산 배분이 이 과소평가된 처리량으로 timesteps를 계산해, 실제로는 25분 예산 중 12.6분만 쓰고 끝났다 — 데이터 자체는 유효하지만 향후 같은 스크립트를 재사용할 때 감안해야 한다.
+
+실무적 함의: full 규모에서 `tools/stage6_benchmark.py` 수준(50,000 timesteps) 학습 1회는 대략 28~30분이 걸린다(29.3 steps/sec 기준). "RL과 모든 기준 정책 비교"(단계 14 나머지 항목)에서 full 규모 학습 시간 예산을 잡을 때 이 수치를 근거로 쓴다.
+
 ## 7. 용어집
 
 | 용어 | 프로젝트에서의 의미 |

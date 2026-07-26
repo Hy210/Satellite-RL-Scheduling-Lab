@@ -5,10 +5,10 @@
 - 마지막 갱신일: 2026-07-26
 - 작업 디렉터리: `D:\HY\01. Developer\Project\NSICPS_RL_Scheduling`
 - 프로젝트 상태: 구현 계획 단계 0~9 완료, 단계 2A, 7A 및 13 완료
-- 현재 구현 단계: 단계 14 통합 검증과 문서 정리 (검증 항목 8/10 완료, 문서 0/7)
+- 현재 구현 단계: 단계 14 통합 검증과 문서 정리 (검증 항목 9/10 완료, 문서 0/7)
 - 진행 중 작업: 없음
 - Blocker: 없음
-- Git 상태: 2026-07-25 CP-SAT baseline, 저장 계층, Backend, Frontend 변경을 `7d62fc7`로, 2026-07-26 CP-SAT worker 오류 코드 정리·통합 테스트·`.gitignore` 정리를 `567bac7`로, 단계 14 1차 배치(잘못된 시나리오 학습 차단, 추적 가능성·단위 일치·시간/자세 제약 검증)를 `6dfadec`로 커밋·push 완료. 이번 세션 변경(단계 14 2차 배치: 시나리오·정책 재현성, return/reward breakdown 일치)은 커밋 대기.
+- Git 상태: 2026-07-25 CP-SAT baseline, 저장 계층, Backend, Frontend 변경을 `7d62fc7`로, 2026-07-26 CP-SAT worker 오류 코드 정리·통합 테스트·`.gitignore` 정리를 `567bac7`로, 단계 14 1차 배치를 `6dfadec`로, 2차 배치(시나리오·정책 재현성, return/reward breakdown 일치)를 `895f3c4`로 커밋·push 완료. 이번 세션 변경(단계 14 3차 배치: full 규모 성능·메모리 벤치마크)은 커밋 대기.
 - Git 원격: `https://github.com/Hy210/Satellite-RL-Scheduling-Lab.git`
 
 ## 현재 목표
@@ -137,6 +137,9 @@
 - Maskable PPO는 같은 모델을 두 번 평가해 완전히 동일한 결과가 나오는지 직접 확인하는 재현성 테스트를 추가(기존에는 reload 후 재평가 비교로만 간접 확인)
 - CP-SAT은 solver seed를 고정해 두었음에도 실제 재현성을 검증한 테스트가 없던 gap을 발견해 재현성 테스트 추가
 - Maskable PPO에 step reward 합, CP-SAT에 reward 구성요소 합 assertion을 추가해 return/reward breakdown 일치 검증을 두 정책 유형까지 대칭적으로 확장
+- 단계 14 3차 배치: `tools/stage14_scale_benchmark.py` 신설 — tiny/small/full 규모의 Maskable PPO 학습 처리량·peak 메모리를 calibration(단발 rollout)과 적응형 본측정(남은 시간 예산 기반)으로 측정, 측정마다 별도 spawn 자식 프로세스로 격리하고 부모가 `psutil`로 peak RSS를 polling
+- dev 의존성에 `psutil` 추가(Windows에는 `resource` 모듈이 없고 `tracemalloc`은 PyTorch 네이티브 메모리를 못 잡아 RSS 측정에 필요)
+- 실측 결과: full 규모 메모리는 tiny 대비 최대 7% 차이(규모와 무상관), 처리량은 tiny 대비 약 17배 느림 — 병목은 신경망이 아니라 시뮬레이터 쪽으로 추정
 
 ## 주요 파일
 
@@ -153,6 +156,7 @@
 - `rl_core/generator.py`: seed 기반 가상 시나리오 생성기
 - `tools/scenario_viewer.html`: 시나리오 JSON을 불러와 pass별 ground track, footprint, strip 및 opportunity를 확인하는 임시 지도 뷰어
 - `tools/stage6_benchmark.py`: 단계 6 Maskable PPO와 Random valid 반복 seed 성능 비교 CLI
+- `tools/stage14_scale_benchmark.py`: tiny/small/full 규모별 Maskable PPO 학습 처리량·peak 메모리 벤치마크 CLI
 - `rl_core/simulator.py`: 결정론적 이벤트 시뮬레이터
 - `rl_core/policies.py`: 기준 정책과 공통 평가기
 - `rl_core/gym_env.py`: Gymnasium 및 Maskable PPO 연결 wrapper
@@ -246,7 +250,7 @@
 - `tools/scenario_viewer.html`은 추가했고, 첫 수동 확인에서 지도 컨테이너 렌더링 문제가 발견되어 CSS와 Leaflet size/bounds 처리를 수정했다. 이후 strip/footprint를 pass 진행 방향에 맞춘 polygon으로 변경했고, 브라우저에서 지도 렌더링과 기울기 정합성을 확인했다.
 - 후보 128개 제한은 full 시나리오 생성 후 분포와 잘림 영향을 검증해야 한다.
 - 10초 opportunity 양자화는 가상 시나리오용 가정이므로 실제 궤도 데이터 연결 시 재검토해야 한다.
-- 2,000개 strip을 평탄화하는 기본 MultiInputPolicy는 full 규모에서 계산량이 클 수 있어 small/full 확장 시 성능을 다시 측정해야 한다.
+- 2026-07-26 측정 결과 메모리는 규모와 무관했지만(최대 7% 차이) full 규모 처리량은 tiny 대비 약 17배 느렸다(`tools/stage14_scale_benchmark.py`, `docs/project-knowledge.md` 6.11절). 병목은 신경망이 아니라 시뮬레이터 쪽으로 추정되며 정확한 원인은 후속 profiling이 필요하다.
 - 단계 6 엄격 검증에서 tiny 시나리오는 통과했지만 개선 폭은 작고 완료 strip/order 수는 Random valid와 같았다. small/full 시나리오와 greedy 정책 비교에서 성능 의미를 다시 확인해야 한다.
 - CP-SAT baseline은 tiny/small 시나리오에서 replay 검증을 통과했다. 실제 대규모 입력에서 time limit이 발생할 때의 성능·bound 해석은 후속 분석이 필요하다.
 - 실제 worker process의 PID/lock, heartbeat 및 checkpoint 선택 재시작 API는 단계 9·12에서 구현해야 한다. 현재는 worker 부재가 확인된 supervisor 시작 시 복구를 호출하는 계약만 확정했다.
@@ -300,10 +304,15 @@
 - `.venv\Scripts\python.exe -m pytest -q`: 128개 테스트 통과 (외부 Starlette/httpx deprecation warning 1건)
 - `.venv\Scripts\python.exe -m ruff check .` / `ruff format --check .` / `mypy`: 통과
 - 이번 배치도 rl_core/tests와 문서만 변경했고 Frontend 파일은 건드리지 않아 `npm run build` 재확인은 생략했다.
+- 2026-07-26 단계 14 3차 배치("full 시나리오의 성능과 메모리 확인")를 완료하고 [구현 계획](docs/implementation-plan.md) 단계 14 통합 검증 체크박스 9/10을 반영했다.
+- `.venv\Scripts\python.exe tools/stage14_scale_benchmark.py`: seed 20260707, 예산 25분 중 12.6분 사용, 세 규모 모두 완주(하드 상한 미도달). tiny 본측정 493.9 steps/sec·733MB, small 397.2 steps/sec·381MB, full 29.3 steps/sec·811MB. 상세는 `docs/project-knowledge.md` 6.11절.
+- `.venv\Scripts\python.exe -m pytest -q`: 128개 테스트 통과 (외부 Starlette/httpx deprecation warning 1건, 코드 변경 없어 테스트 수 동일)
+- `.venv\Scripts\python.exe -m ruff check .` / `ruff format --check .`: 통과(신규 `tools/stage14_scale_benchmark.py` 포함, `tools/`는 mypy 대상 아님 — `pyproject.toml`의 `[tool.mypy].packages`)
+- 이번 배치는 `tools/`, `pyproject.toml`(psutil 의존성), 문서만 변경했고 Frontend 파일은 건드리지 않아 `npm run build` 재확인은 생략했다.
 
 ## 다음 세션의 첫 작업
 
-[구현 계획의 단계 14](docs/implementation-plan.md) 통합 검증 나머지 2개 항목("full 시나리오의 성능과 메모리 확인", "RL과 모든 기준 정책 비교")에 착수한다. 둘 다 결과 의존적이므로 먼저 어떤 seed/규모를 기준으로 할지와 측정·비교 방식을 정한 뒤 진행한다("full 시나리오의 성능과 메모리 확인"은 어떤 규모의 실제 PPO 학습을 얼마나 오래 돌릴지부터, "RL과 모든 기준 정책 비교"는 small 규모부터 시작해 full로 확장). 두 항목이 끝나면 문서 7개 항목(설치·로컬 실행·테스트 방법, 데이터 형식, API 계약, 학습/평가 실행 방법, 알려진 제한사항)을 한 번에 정리한다.
+[구현 계획의 단계 14](docs/implementation-plan.md) 통합 검증 마지막 항목 "RL과 모든 기준 정책 비교"에 착수한다. `docs/project-knowledge.md` 6.11절의 실측 처리량(full 규모 약 29.3 steps/sec)을 근거로 학습 시간 예산을 잡고, small 규모부터 시작해 full로 확장한다(학습 곡선 추세 + Random valid/Priority greedy 기준선 비교로 "완전한 수렴"이 아니라 "방향이 맞는지"를 확인하는 단계 6과 같은 방법론을 재사용). 이 항목이 끝나면 문서 7개 항목(설치·로컬 실행·테스트 방법, 데이터 형식, API 계약, 학습/평가 실행 방법, 알려진 제한사항)을 한 번에 정리한다.
 
 ## 관련 문서
 
