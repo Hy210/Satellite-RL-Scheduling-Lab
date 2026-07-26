@@ -5,10 +5,10 @@
 - 마지막 갱신일: 2026-07-26
 - 작업 디렉터리: `D:\HY\01. Developer\Project\NSICPS_RL_Scheduling`
 - 프로젝트 상태: 구현 계획 단계 0~9 완료, 단계 2A, 7A 및 13 완료
-- 현재 구현 단계: 단계 14 통합 검증과 문서 정리 (착수 전)
+- 현재 구현 단계: 단계 14 통합 검증과 문서 정리 (1차 배치 완료 — 검증 항목 4/10, 문서 0/7)
 - 진행 중 작업: 없음
 - Blocker: 없음
-- Git 상태: 2026-07-25 CP-SAT baseline, 저장 계층, Backend, Frontend 변경을 `7d62fc7`로 커밋·push 완료. 이번 세션 변경(CP-SAT worker 오류 코드 정리, 통합 테스트, `.gitignore` 정리, 문서/HANDOFF 갱신)은 커밋 대기.
+- Git 상태: 2026-07-25 CP-SAT baseline, 저장 계층, Backend, Frontend 변경을 `7d62fc7`로, 2026-07-26 CP-SAT worker 오류 코드 정리·통합 테스트·`.gitignore` 정리를 `567bac7`로 커밋·push 완료. 이번 세션 변경(단계 14 1차 배치: 잘못된 시나리오 학습 차단, 추적 가능성·단위 일치·시간/자세 제약 검증)은 커밋 대기.
 - Git 원격: `https://github.com/Hy210/Satellite-RL-Scheduling-Lab.git`
 
 ## 현재 목표
@@ -129,6 +129,10 @@
 - `POST /api/cp-sat-evaluation-runs`의 worker busy/시작 실패 오류를 `POST /api/training-runs`와 동일하게 `409`/`500`으로 구분
 - CP-SAT 평가 run queue/오류/scenario 404 backend 통합 테스트, PPO·CP-SAT 단일 실행 슬롯 공유 단위 테스트, PPO 최종 평가·CP-SAT 기준해 통합 `PolicyComparison` 테스트 추가
 - `StorageRepository`가 사용하는 `data/` 하위 전체 경로를 가리도록 `.gitignore`를 `data/*`/`!data/README.md`로 정리
+- 단계 14 1차 배치: `_load_scenario_or_api_error`가 SHA-256 불일치를 검사하지 않던 gap을 발견해 `_load_valid_scenario_or_api_error`를 추가하고 `POST /api/training-runs`·`POST /api/evaluation-runs`·`POST /api/cp-sat-evaluation-runs` 세 곳에 적용, 손상 scenario 차단 테스트 3건 추가
+- `EvaluationRun` → `TrainingRun` → config snapshot → checkpoint/final model 존재 여부까지 API로 끊김 없이 추적 가능함을 확인하는 통합 테스트 추가, 실제 모델 파일은 로컬 경로 규칙으로 찾는다는 점을 문서화
+- 저장된 `EpisodeReplay.schedule`이 시뮬레이터 재호출 없이도 촬영 window·최소 간격·slew 제약을 만족하는지 독립적으로 재확인하는 통합 테스트 추가
+- `created_at`/`updated_at`이 ISO 8601 UTC 문자열이라는 기존 관례를 `docs/data-format.md`에 명시하고 회귀 테스트 추가 — 각도·경과시간 단위는 모델→API→Frontend까지 이미 일치함을 코드 검토로 확인
 
 ## 주요 파일
 
@@ -284,10 +288,14 @@
 - `.venv\Scripts\python.exe -m pytest -q`: 111개 테스트 통과 (외부 Starlette/httpx deprecation warning 1건)
 - `.venv\Scripts\python.exe -m ruff check .` / `ruff format --check .` / `mypy`: 통과
 - 단계 13 완료 조건(재생, action 선택 가능 여부 확인, 동일 시나리오 RL·기준 정책 비교)을 모두 충족해 [구현 계획](docs/implementation-plan.md) 단계 13을 완료 처리했다.
+- 2026-07-26 단계 14 1차 배치(데이터 모델·API·GUI 단위 일치, 모델·설정 추적 가능성, 촬영 시간·자세 제약 준수, 잘못된 시나리오의 학습 차단)를 완료하고 [구현 계획](docs/implementation-plan.md) 단계 14 통합 검증 체크박스 4/10을 반영했다.
+- `.venv\Scripts\python.exe -m pytest -q`: 116개 테스트 통과 (외부 Starlette/httpx deprecation warning 1건)
+- `.venv\Scripts\python.exe -m ruff check .` / `ruff format --check .` / `mypy`: 통과
+- 이번 배치는 backend/rl_core/tests와 문서만 변경했고 Frontend 파일은 건드리지 않아 `npm run build` 재확인은 생략했다.
 
 ## 다음 세션의 첫 작업
 
-[구현 계획의 단계 14](docs/implementation-plan.md) 통합 검증과 문서 정리에 착수한다. 통합 검증 체크리스트(동일 seed 재현, 정책 평가 재현, 촬영 제약 준수, return/reward breakdown 일치, 데이터 모델·API·GUI 단위 일치, 모델·설정 추적 가능성, worker 실패 처리, 잘못된 시나리오 학습 차단, full 시나리오 성능/메모리, RL·모든 기준 정책 비교)부터 항목별로 확인하고, 이번 세션의 CP-SAT/PPO 통합 테스트·`.gitignore` 정리·문서 갱신을 하나의 커밋으로 만들어 push한다.
+[구현 계획의 단계 14](docs/implementation-plan.md) 통합 검증 나머지 6개 항목 중 저비용인 "동일 seed의 시나리오 재현", "동일 정책 평가 결과 재현", "return과 reward breakdown 일치"부터 확인한다(기존 `tests/test_generator.py`·`tests/test_policies.py`·replay round-trip 테스트가 이미 부분적으로 커버하므로 gap만 보강). 이후 결과 의존적인 "full 시나리오의 성능과 메모리 확인"(어떤 seed/규모를 기준으로 할지 먼저 결정 필요)과 "RL과 모든 기준 정책 비교"(small 규모 먼저, full은 그다음)로 이어가고, 문서 7개 항목은 검증 결과가 어느 정도 쌓인 뒤 한 번에 정리한다.
 
 ## 관련 문서
 

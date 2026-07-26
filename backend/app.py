@@ -470,7 +470,7 @@ def create_app(
         """기준 정책을 동기 실행하고 EvaluationRun·replay artifact로 보존한다."""
 
         repository = _repository(app)
-        scenario = _load_scenario_or_api_error(repository, request.scenario_id)
+        scenario = _load_valid_scenario_or_api_error(repository, request.scenario_id)
         policy = _baseline_policy_or_api_error(request.policy_name)
         run_id = f"evaluation-{uuid4().hex}"
         running_run = EvaluationRun(
@@ -525,7 +525,7 @@ def create_app(
         """CP-SAT 평가를 queued 상태로 저장하고 공통 실행 worker에 인계한다."""
 
         repository = _repository(app)
-        scenario = _load_scenario_or_api_error(repository, request.scenario_id)
+        scenario = _load_valid_scenario_or_api_error(repository, request.scenario_id)
         run_id = f"evaluation-cp-sat-{uuid4().hex}"
         queued = EvaluationRun(
             run_id=run_id,
@@ -633,7 +633,7 @@ def create_app(
         """학습 설정 snapshot을 저장하고 별도 worker process에 Maskable PPO 실행을 맡긴다."""
 
         repository = _repository(app)
-        scenario = _load_scenario_or_api_error(repository, request.scenario_id)
+        scenario = _load_valid_scenario_or_api_error(repository, request.scenario_id)
         run_id = f"training-{uuid4().hex}"
         config = request.config.model_copy(update={"artifact_root": repository.data_root / "runs"})
         queued_run = TrainingRun(
@@ -1144,6 +1144,33 @@ def _load_scenario_or_api_error(repository: StorageRepository, scenario_id: str)
             "scenario_artifact_invalid",
             f"Scenario artifact is invalid for scenario_id: {scenario_id}",
         ) from error
+
+
+def _load_valid_scenario_or_api_error(repository: StorageRepository, scenario_id: str) -> Scenario:
+    """학습·평가 run을 시작하기 전 scenario artifact의 해시·구조까지 재검증한다.
+
+    조회 전용 endpoint는 `_load_scenario_or_api_error`로 충분하지만, 새 run을
+    시작하는 endpoint는 저장된 파일이 색인된 SHA-256과 어긋난(조용히 손상된)
+    scenario로 학습이 시작되지 않도록 `validate_scenario()`까지 함께 확인한다.
+    """
+
+    try:
+        result = repository.validate_scenario(scenario_id)
+    except KeyError as error:
+        raise ApiError(404, "scenario_not_found", f"Unknown scenario_id: {scenario_id}") from error
+    except ArtifactNotFoundError as error:
+        raise ApiError(
+            409,
+            "scenario_artifact_missing",
+            f"Scenario artifact is missing for scenario_id: {scenario_id}",
+        ) from error
+    if not result.valid:
+        raise ApiError(
+            409,
+            "scenario_artifact_invalid",
+            f"Scenario artifact failed validation for scenario_id: {scenario_id}",
+        )
+    return repository.load_scenario(scenario_id)
 
 
 def _load_evaluation_run_or_api_error(repository: StorageRepository, run_id: str) -> EvaluationRun:

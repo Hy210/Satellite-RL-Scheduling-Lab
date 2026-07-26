@@ -556,14 +556,23 @@ PPO 최종 평가와 CP-SAT 기준해는 모두 공통 summary·replay artifact�
 
 - [ ] 동일 seed의 시나리오 재현
 - [ ] 동일 정책 평가 결과 재현
-- [ ] 모든 촬영의 시간 및 자세 제약 준수
+- [x] 모든 촬영의 시간 및 자세 제약 준수
 - [ ] return과 reward breakdown 일치
-- [ ] 데이터 모델, API 및 GUI 단위 일치
-- [ ] 모델과 설정의 추적 가능성
-- [ ] 학습 worker 실패 처리
-- [ ] 잘못된 시나리오의 학습 차단
+- [x] 데이터 모델, API 및 GUI 단위 일치
+- [x] 모델과 설정의 추적 가능성
+- [x] 학습 worker 실패 처리
+- [x] 잘못된 시나리오의 학습 차단
 - [ ] full 시나리오의 성능과 메모리 확인
 - [ ] RL과 모든 기준 정책 비교
+
+2026-07-26 1차 배치는 아래 4개 항목을 완료했다.
+
+- **데이터 모델·API·GUI 단위 일치**: `rl_core/models.py`의 각도(`*_deg`)·경과시간(`*_sec`) 필드가 `backend/app.py` DTO와 Frontend까지 변환 없이 그대로 전달됨을 코드 검토로 확인했다. 유일하게 문서화되지 않았던 `created_at`/`updated_at`(ISO 8601 UTC 문자열) 계약을 `docs/data-format.md`에 명시하고, `tests/test_backend.py`에 파싱 가능성 회귀 테스트를 추가했다.
+- **모델과 설정의 추적 가능성**: `EvaluationRun.source_training_run_id` → `GET /api/training-runs/{run_id}/detail`의 config snapshot·checkpoint 목록·`final_model_available`까지 API로 끊김 없이 연결됨을 `tests/test_backend.py::test_evaluation_result_traces_back_to_training_run_and_model_artifacts`로 검증했다. 실제 모델 파일은 별도 다운로드 API 없이 `TrainingRun.artifact_directory`와 저장 규칙 조합으로 로컬에서 찾는다는 점을 `docs/web-application-design.md`에 명시했다.
+- **촬영 시간·자세 제약 준수**: `rl_core/simulator.py`가 매 action마다 강제하는 window·roll/tilt·slew·최소 간격 제약을, 저장된 `EpisodeReplay.schedule`만으로 시뮬레이터를 다시 호출하지 않고 독립적으로 재확인하는 `tests/test_integration.py::test_replay_schedule_respects_capture_window_and_minimum_interval`을 추가했다.
+- **잘못된 시나리오의 학습 차단**: `_load_scenario_or_api_error`가 SHA-256 불일치를 검사하지 않아 손상된(구조는 유효한) scenario로 학습·평가가 조용히 시작될 수 있던 gap을 발견해 수정했다. `backend/app.py`에 `_load_valid_scenario_or_api_error`를 추가해 `POST /api/training-runs`, `POST /api/evaluation-runs`, `POST /api/cp-sat-evaluation-runs` 세 곳 모두 `repository.validate_scenario()`까지 통과해야 실행을 시작하도록 교체했고(읽기 전용 조회 API는 기존 동작 유지), 세 endpoint 각각의 checksum 불일치 차단 테스트를 추가했다.
+
+나머지 6개 항목(동일 seed·정책 재현, return/reward breakdown 일치, full 규모 성능·메모리, RL·전체 기준 정책 비교)과 문서 7개 항목은 결과 의존적이거나 더 큰 작업 단위라 후속 세션에서 진행한다.
 
 #### 문서
 

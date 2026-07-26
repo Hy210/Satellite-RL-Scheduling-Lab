@@ -10,6 +10,7 @@
 
 - ID는 비어 있지 않은 문자열이다.
 - 모든 시각은 시나리오 시작을 `0`으로 하는 초 단위 실수다.
+- Scenario 저장 메타데이터의 `created_at`/`updated_at`은 위 시나리오 시각과 다른 범주로, UTC 기준 ISO 8601 문자열이다.
 - 시간 구간은 `start < end`를 만족한다.
 - 각도 단위는 degree다.
 - 각속도 단위는 degree/second다.

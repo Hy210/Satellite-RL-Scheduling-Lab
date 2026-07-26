@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -47,6 +48,11 @@ def test_scenario_list_and_detail_use_storage_repository(tmp_path: Path) -> None
     }
     assert all(
         {"scenario_id", "name", "seed", "created_at", "updated_at"} <= item.keys()
+        for item in response.json()["items"]
+    )
+    # created_at/updated_at은 ISO 8601 UTC 문자열 계약을 지켜야 한다 (docs/data-format.md).
+    assert all(
+        datetime.fromisoformat(item["created_at"]).utcoffset() is not None
         for item in response.json()["items"]
     )
     assert detail.status_code == 200
@@ -153,6 +159,72 @@ def test_scenario_validation_reports_valid_checksum_and_structure_results(tmp_pa
     assert checksum.json()["issues"][0]["code"] == "artifact_checksum_mismatch"
     assert structure.status_code == 200
     assert any(issue["location"] == ["name"] for issue in structure.json()["issues"])
+
+
+def _corrupt_saved_scenario_checksum(repository: StorageRepository, scenario) -> None:  # type: ignore[no-untyped-def]
+    """저장된 scenario artifact를 색인된 SHA-256과 어긋나게 만들어 손상 상황을 흉내낸다."""
+
+    relative_path = repository.save_scenario(scenario)
+    artifact_path = repository.data_root / relative_path
+    payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    payload["name"] = "changed outside repository"
+    artifact_path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_training_run_creation_blocks_checksum_mismatched_scenario(tmp_path: Path) -> None:
+    repository = StorageRepository(tmp_path / "data")
+    scenario = generate_scenario(seed=1, size="tiny")
+    _corrupt_saved_scenario_checksum(repository, scenario)
+    client = TestClient(create_app(repository=repository))
+
+    response = client.post(
+        "/api/training-runs",
+        json={
+            "scenario_id": scenario.scenario_id,
+            "config": {
+                "total_timesteps": 8,
+                "learning_seed": 17,
+                "evaluation_seed": 23,
+                "n_steps": 4,
+                "batch_size": 4,
+            },
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "scenario_artifact_invalid"
+
+
+def test_evaluation_run_creation_blocks_checksum_mismatched_scenario(tmp_path: Path) -> None:
+    repository = StorageRepository(tmp_path / "data")
+    scenario = generate_scenario(seed=1, size="tiny")
+    _corrupt_saved_scenario_checksum(repository, scenario)
+    client = TestClient(create_app(repository=repository))
+
+    response = client.post(
+        "/api/evaluation-runs",
+        json={"scenario_id": scenario.scenario_id, "policy_name": "random_valid", "seed": 1},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "scenario_artifact_invalid"
+
+
+def test_cp_sat_evaluation_run_creation_blocks_checksum_mismatched_scenario(
+    tmp_path: Path,
+) -> None:
+    repository = StorageRepository(tmp_path / "data")
+    scenario = generate_scenario(seed=1, size="tiny")
+    _corrupt_saved_scenario_checksum(repository, scenario)
+    client = TestClient(create_app(repository=repository))
+
+    response = client.post(
+        "/api/cp-sat-evaluation-runs",
+        json={"scenario_id": scenario.scenario_id, "seed": 17, "time_limit_sec": 5.0},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "scenario_artifact_invalid"
 
 
 def test_baseline_evaluation_persists_run_summary_and_replay(tmp_path: Path) -> None:
@@ -822,3 +894,39 @@ def test_policy_comparison_combines_ppo_final_evaluation_and_cp_sat_baseline(
         CP_SAT_POLICY_NAME,
         "maskable_ppo",
     }
+
+
+def test_evaluation_result_traces_back_to_training_run_and_model_artifacts(
+    tmp_path: Path,
+) -> None:
+    # 단계 14: PPO EvaluationRun에서 원본 학습 run·config snapshot·모델 파일 존재 여부까지
+    # API만으로 끊김 없이 추적 가능한지 확인한다.
+    repository = StorageRepository(tmp_path / "data")
+    scenario = generate_scenario(seed=1, size="tiny")
+    repository.save_scenario(scenario)
+    ppo_config = MaskablePPOTrainingConfig(
+        total_timesteps=8,
+        learning_seed=11,
+        evaluation_seed=17,
+        n_steps=4,
+        batch_size=4,
+        checkpoint_interval=4,
+        evaluation_interval=4,
+        artifact_root=repository.data_root / "runs",
+    )
+    train_maskable_ppo(scenario, ppo_config, run_id="traceable-ppo", storage=repository)
+
+    client = TestClient(create_app(repository=repository))
+    result = client.get("/api/results/evaluation-ppo-traceable-ppo")
+    assert result.status_code == 200
+    training_run_id = result.json()["run"]["source_training_run_id"]
+    assert training_run_id == "traceable-ppo"
+
+    detail = client.get(f"/api/training-runs/{training_run_id}/detail")
+    assert detail.status_code == 200
+    payload = detail.json()
+    assert payload["run"]["scenario_id"] == scenario.scenario_id
+    assert payload["config"]["learning_seed"] == 11
+    assert payload["checkpoints"]
+    assert payload["final_model_available"] is True
+    assert payload["final_evaluation_available"] is True

@@ -306,6 +306,15 @@ PPO median return은 `5.326453530248241`, Random valid median return은 `5.32539
 
 `PolicyComparison`은 같은 시나리오의 여러 replay를 요약 지표와 함께 묶는다. 최고 정책은 총 return을 우선으로 고르고, 동률일 때 완료 주문 수, 완료 strip 수, 촬영 수를 차례로 비교한다. 이 기준은 화면 정렬과 빠른 요약을 위한 artifact 규칙이며, 도메인 최적성 보장을 의미하지 않는다.
 
+### 6.10 단계 14 1차 검증에서 확인한 지식
+
+**상태:** 확정
+**마지막 갱신:** 2026-07-26
+
+학습·평가 run 생성 API(`POST /api/training-runs`, `POST /api/evaluation-runs`, `POST /api/cp-sat-evaluation-runs`)가 공유하던 `_load_scenario_or_api_error`는 scenario JSON을 Pydantic으로 다시 파싱만 할 뿐 저장된 SHA-256과 비교하지 않았다. 즉 파일이 외부에서 손상되거나 수정됐지만 구조상 여전히 유효한 `Scenario`로 파싱되는 경우, 학습·평가가 조용히 시작될 수 있었다. `repository.validate_scenario()`는 이미 해시·구조를 모두 검증하는 기능을 갖고 있었지만 조회 API(`GET /api/scenarios/{id}/validation`)에서만 쓰이고 있었다. 이 gap은 코드 검토로만 드러났고 기존 테스트에는 없었다 — write endpoint에 대한 무결성 검증은 read endpoint와 별개로 명시적으로 확인해야 한다는 재사용 가능한 교훈이다. write endpoint에는 `validate_scenario()`까지 통과해야 하는 `_load_valid_scenario_or_api_error`를 별도로 두고, 읽기 전용 조회 API는 기존 동작을 유지했다(`docs/web-application-design.md` 참고).
+
+모델·설정의 추적 가능성은 `EvaluationRun.source_training_run_id`부터 `GET /api/training-runs/{run_id}/detail`의 config snapshot·checkpoint 목록까지는 API로 완전히 보장되지만, 실제 모델 파일(`.zip`)을 가리키는 API는 의도적으로 두지 않았다. 이 프로젝트는 로컬 단일 사용자 프로토타입이라 운영자가 `data/` 파일시스템에 직접 접근할 수 있으므로, `TrainingRun.artifact_directory` + 고정된 저장 규칙(`model/final-model.zip`)을 문서화하는 것으로 추적 가능성 요건을 충족한다고 판단했다. 다중 사용자·원격 배포로 확장하면 이 가정을 재검토해야 한다.
+
 ## 7. 용어집
 
 | 용어 | 프로젝트에서의 의미 |
@@ -340,6 +349,7 @@ PPO median return은 `5.326453530248241`, Random valid median return은 `5.32539
 
 ## 9. 변경 기록
 
+- 2026-07-26: 학습·평가 run 생성 API가 scenario artifact의 SHA-256 불일치를 검사하지 않던 gap을 발견해 `_load_valid_scenario_or_api_error`로 수정했고, 모델 파일 추적은 다운로드 API 대신 로컬 경로 규칙 문서화로 충분하다는 판단을 기록했다.
 - 2026-07-23: 정책 비교는 화면이 최신 실행을 추정해 합치는 방식 대신 사용자가 같은 scenario·seed의 완료 EvaluationRun을 명시적으로 선택해 immutable artifact로 고정한다. 각 비교 행에 evaluation run ID를 보존하면 동일 정책을 여러 번 실행했어도 결과와 replay 링크가 다른 실행으로 연결되지 않는다.
 - 2026-07-23: episode 재생은 전체 replay를 브라우저에 다시 계산하거나 한꺼번에 적재하지 않고, episode 요약의 step 수와 direct step 조회를 이용해 현재 step만 읽도록 구성했다. 이 방식은 후보와 action mask 상세는 유지하면서 큰 replay의 초기 화면 비용을 제한한다.
 - 2026-07-22: 학습 제어 UI는 worker의 메모리 상태가 아니라 저장된 `TrainingRun`, config snapshot 및 append-only metrics만 polling해야 새로고침과 Backend 재시작 뒤에도 같은 run을 복구할 수 있다. `stop_requested`는 완료 상태가 아니라 cooperative cancellation이 checkpoint를 보존 중인 중간 상태이므로 별도 표시한다.
