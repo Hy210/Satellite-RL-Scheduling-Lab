@@ -350,32 +350,34 @@ full   : 주문 100개, pass 30개
 
 #### 작업
 
-- [ ] OR-Tools CP-SAT 의존성 검토 및 추가
-- [ ] opportunity 선택 0/1 변수 모델링
-- [ ] 같은 strip 중복 선택 금지 제약
-- [ ] 시간 겹침 및 최소 촬영 간격 충돌 제약
-- [ ] simulator와 동일한 자세 전환시간 기반 충돌 제약
-- [ ] 주문 기간, access window, episode 범위 및 자세 제한 위반 후보 제외
-- [ ] reward와 유사한 선형 목적함수 정의
-- [ ] solver 선택 결과를 시간순 action 열로 변환
-- [ ] 선택 결과를 기존 simulator 평가기로 재검증하고 `EpisodeReplay` 생성
-- [ ] `OptimizationBaselineResult` 저장 및 복원 helper
-- [ ] `PolicyComparison`에 `cp_sat_baseline` 항목 포함
-- [ ] 제한 시간, solver status, best objective, bound 및 gap 기록
+- [x] OR-Tools CP-SAT 의존성 검토 및 추가
+- [x] opportunity 선택 0/1 변수 모델링
+- [x] 같은 strip 중복 선택 금지 제약
+- [x] 시간 겹침 및 최소 촬영 간격 충돌 제약
+- [x] simulator와 동일한 자세 전환시간 기반 충돌 제약
+- [x] 주문 기간, access window, episode 범위 및 자세 제한 위반 후보 제외
+- [x] reward와 유사한 선형 목적함수 정의
+- [x] solver 선택 결과를 시간순 action 열로 변환
+- [x] 선택 결과를 기존 simulator 평가기로 재검증하고 `EpisodeReplay` 생성
+- [x] `OptimizationBaselineResult` 저장 및 복원 helper
+- [x] `PolicyComparison`에 `cp_sat_baseline` 항목 포함
+- [x] 제한 시간, solver status, best objective, bound 및 gap 기록
 
 #### 필수 검증
 
-- [ ] tiny 시나리오에서 CP-SAT 결과가 모든 simulator 제약을 만족한다.
-- [ ] CP-SAT이 선택한 opportunity ID 목록을 replay로 다시 실행할 수 있다.
-- [ ] solver 목적함수와 simulator return 차이를 reward breakdown으로 설명할 수 있다.
-- [ ] infeasible 또는 time limit 상태가 명확한 artifact 상태로 저장된다.
-- [ ] Random valid, greedy, Maskable PPO 및 CP-SAT baseline을 같은 `PolicyComparison`으로 비교할 수 있다.
+- [x] tiny 시나리오에서 CP-SAT 결과가 모든 simulator 제약을 만족한다.
+- [x] CP-SAT이 선택한 opportunity ID 목록을 replay로 다시 실행할 수 있다.
+- [x] solver 목적함수와 simulator return 차이를 reward breakdown으로 설명할 수 있다.
+- [x] infeasible 또는 time limit 상태가 명확한 artifact 상태로 저장된다.
+- [x] Random valid, greedy, Maskable PPO 및 CP-SAT baseline을 같은 `PolicyComparison`으로 비교할 수 있다.
 
 #### 완료 조건
 
-- [ ] tiny 시나리오에서 CP-SAT baseline 결과와 optimality gap을 산출할 수 있다.
-- [ ] CP-SAT 결과가 기존 평가·재생 로그 구조와 호환된다.
-- [ ] solver 모델이 simulator 제약과 어긋날 경우 테스트가 실패한다.
+- [x] tiny 시나리오에서 CP-SAT baseline 결과와 optimality gap을 산출할 수 있다.
+- [x] CP-SAT 결과가 기존 평가·재생 로그 구조와 호환된다.
+- [x] solver 모델이 simulator 제약과 어긋날 경우 테스트가 실패한다.
+
+`rl_core/optimization.py`는 `solve_cp_sat_baseline()`으로 tiny 시나리오의 CP-SAT 기준해를 만든다. 현재 구현은 `strip_base_reward + angle_bonus` 합을 정수 계수로 스케일링해 최대화하고, 선택 결과는 `cp_sat_baseline` 정책 이름의 `EpisodeReplay`로 simulator에서 재검증한다. `INFEASIBLE` 및 `UNKNOWN`(time limit 등 해를 찾기 전 종료) 상태도 선택 목록과 solver 점수를 비운 artifact로 저장·복원하는 테스트를 추가했다. 또한 Random valid, 세 greedy 정책, 짧은 학습 smoke run의 Maskable PPO 및 CP-SAT baseline을 하나의 `PolicyComparison`으로 저장·복원하는 통합 테스트를 통과했다. small 시나리오(seed 20260707, solver seed 17, 60초 제한)는 0.05초에 `OPTIMAL`, gap 0으로 replay 검증까지 완료했다. 이로써 단계 7A는 완료로 본다.
 
 ---
 
@@ -383,14 +385,14 @@ full   : 주문 100개, pass 30개
 
 #### 작업
 
-- [ ] SQLite schema
-- [ ] 시나리오 메타데이터 저장
-- [ ] 학습 및 평가 run 저장
-- [ ] 환경/보상 설정 snapshot
-- [ ] 모델 및 artifact 경로 저장
-- [ ] 로컬 artifact 디렉터리 관리
-- [ ] 원자적 파일 저장 또는 임시 파일 교체
-- [ ] 실패한 run 상태 복구
+- [x] SQLite schema
+- [x] 시나리오 메타데이터 저장
+- [x] 학습 및 평가 run 저장
+- [x] 환경/보상 설정 snapshot
+- [x] 모델 및 artifact 경로 저장
+- [x] 로컬 artifact 디렉터리 관리
+- [x] 원자적 파일 저장 또는 임시 파일 교체
+- [x] 실패한 run 상태 복구
 
 #### 완료 조건
 
@@ -398,22 +400,36 @@ full   : 주문 100개, pass 30개
 - 각 모델이 어떤 시나리오와 설정으로 생성됐는지 추적할 수 있다.
 - 삭제 또는 손상된 artifact를 명확한 오류로 표시한다.
 
+`rl_core/storage.py`의 `StorageRepository`는 `data/scheduler.sqlite3`와 data root 아래 파일을 함께 관리한다. SQLite에는 scenario/run 메타데이터와 artifact의 상대 경로·SHA-256·크기만 저장하고, Scenario·설정·replay·비교 결과 같은 대용량 JSON과 모델 바이너리는 파일로 유지한다. JSON은 같은 디렉터리의 임시 파일을 fsync한 뒤 원자 교체하며, 이미 생성된 모델 파일은 `register_existing_artifact()`로 색인할 수 있다. 누락 artifact는 `ArtifactNotFoundError`와 `list_missing_artifacts()`로 복구 대상으로 확인한다.
+
+실행 상태 전이는 `queued → running → completed/failed` 및 `running → stop_requested → stopped/failed`만 허용하며 terminal 상태는 다시 실행 상태로 바꾸지 않는다. worker supervisor는 기존 worker가 없음을 확인한 자신의 시작 시점에만 `recover_interrupted_runs()`를 호출한다. 이 호출은 `running`을 `failed`로, `stop_requested`를 `stopped`로 정리하되 checkpoint와 부분 artifact는 삭제하지 않는다. Backend 재시작만으로 이 복구를 호출하지 않아 살아 있는 별도 worker를 실패 처리하지 않도록 한다. `train_maskable_ppo()`는 선택적으로 `StorageRepository`를 받아 시작·완료·예외 상태를 SQLite에 기록한다. 이로써 단계 8은 완료로 본다.
+
 ---
 
 ### 단계 9. FastAPI Backend
 
 #### 구현 순서
 
-1. [ ] health 및 버전 정보
-2. [ ] 시나리오 목록과 상세 조회
-3. [ ] 주문, strip 및 opportunity 조회
-4. [ ] 시나리오 유효성 검사
-5. [ ] 기준 정책 실행
-6. [ ] 결과와 타임라인 조회
-7. [ ] 학습 run 생성
-8. [ ] 학습 중지 요청
-9. [ ] 학습 상태와 로그 조회
-10. [ ] episode 및 step 조회
+1. [x] health 및 버전 정보
+2. [x] 시나리오 목록과 상세 조회
+3. [x] 주문, strip 및 opportunity 조회
+4. [x] 시나리오 유효성 검사
+5. [x] 기준 정책 실행
+6. [x] 결과와 타임라인 조회
+7. [x] 학습 run 생성
+8. [x] 학습 중지 요청
+9. [x] 학습 상태와 로그 조회
+10. [x] episode 및 step 조회
+
+`backend.app.create_app()`은 테스트에서 임시 `StorageRepository`를 주입할 수 있는 app factory다. 현재 구현된 조회 API는 `GET /api/health`, `GET /api/version`, `GET /api/scenarios`, `GET /api/scenarios/{scenario_id}`와 하위 목록인 `GET /api/scenarios/{scenario_id}/orders`, `/strips`, `/opportunities`다. 목록은 대용량 Scenario JSON을 읽지 않고 SQLite 메타데이터만 반환하며, 하위 목록은 Scenario를 검증해 읽은 뒤 공통 `offset`/`limit` pagination(기본 0/100, limit 최대 500)을 적용한다. orders는 priority, strips는 order ID, opportunities는 order/strip/pass/kind 필터를 지원한다. `GET /api/scenarios/{scenario_id}/validation`은 artifact 존재 여부, SQLite SHA-256 일치 및 Pydantic 구조를 다시 검사해 `valid`와 `issues[]`를 반환한다. 구조 오류와 checksum 불일치는 200 응답의 검증 결과로 표시하고, 존재하지 않는 시나오는 `404 scenario_not_found`, 삭제된 artifact는 `409 scenario_artifact_missing`의 구조화된 오류 본문으로 반환한다.
+
+`POST /api/evaluation-runs`는 `random_valid`, `earliest_deadline_first`, `priority_greedy`, `priority_efficiency_greedy`를 동기 실행한다. API는 `EvaluationRun`을 먼저 `running`으로 저장하고, 성공하면 `completed` 상태·summary/replay artifact를 `data/evaluations/<run-id>/`에 저장한다. 정책 실행 예외는 `failed` 상태와 내부 오류 메시지를 저장하고 API에는 `500 baseline_evaluation_failed`만 반환한다. `GET /api/evaluation-runs/{run_id}`는 worker 확장 전에도 polling 가능한 run 상태를 반환한다. `GET /api/results/{run_id}`는 저장된 summary를, `GET /api/results/{run_id}/timeline`은 저장된 replay의 schedule만 시간순 pagination으로 반환한다. `GET /api/results/{run_id}/episodes`는 현재 단일 replay를 예약된 `evaluation` episode ID의 요약으로, `GET /api/results/{run_id}/episodes/evaluation/steps`는 원본 `ReplayStep`을 pagination으로 반환한다. 따라서 후보, action mask 사유, 선택 action 및 reward breakdown을 재계산 없이 재생 화면에 제공한다. 결과 조회는 artifact 색인의 소유자·종류·SHA-256과 Pydantic 구조, run metadata 일치를 검증하며, 미완료 run·artifact 누락·손상은 각각 구조화된 409 응답으로 구분한다. 알 수 없는 episode ID는 `404 episode_not_found`이다.
+
+`POST /api/training-runs`는 `202 Accepted`로 queued `TrainingRun`을 반환하고, `backend.workers.TrainingWorkerSupervisor`가 별도 non-daemon spawn process에서 저장된 scenario·config snapshot을 다시 읽어 `train_maskable_ppo()`를 실행한다. 요청의 `artifact_root` 값은 무시하고 서버의 `data/runs` 경로로 강제한다. 초기 구현은 로컬 단일 worker만 허용하며 실행 중인 worker가 있으면 새 run을 `failed`로 기록하고 `409 training_worker_busy`를 반환한다. process 시작 자체가 실패하면 `500 training_worker_start_failed`와 failed run을 남긴다. worker 내부 예외도 queued/running run의 `failed` 상태와 오류 메시지로 보존한다. 학습 중지, 상태·로그 조회와 CP-SAT baseline은 아직 구현하지 않았다.
+
+`POST /api/training-runs/{run_id}/stop`은 queued run을 즉시 `stopped`로, running run을 `stop_requested`로 바꾸며 같은 요청을 다시 보내도 상태를 유지한다. PPO callback은 각 training step의 안전한 경계에서 SQLite의 `stop_requested`를 확인하고 즉시 checkpoint를 저장한 뒤 `model.learn()`을 끝낸다. trainer는 `running → stop_requested → stopped` 전이를 보장하고, 중지된 run에는 final model·최종 평가·replay를 만들지 않는다. worker가 시작 전 `stopped` 또는 `stop_requested`를 발견하면 trainer를 실행하지 않는다. 학습 상태·로그 조회와 CP-SAT baseline은 아직 구현하지 않았다.
+
+`GET /api/training-runs/{run_id}`는 SQLite `TrainingRun` 상태를, `GET /api/training-runs/{run_id}/metrics`는 `runs/<run-id>/metrics/training-metrics.jsonl`의 고정 시나리오 평가 요약을 pagination으로 반환한다. metrics JSONL은 학습 곡선용 summary만 기록하며 episode replay를 중복 저장하지 않는다. 파일이 아직 없는 것은 정상 빈 목록이고, 실행 중 마지막 줄에 줄바꿈이 없으면 append 도중인 행으로 보고 다음 polling까지 보류한다. 그 외 JSON·UTF-8·DTO 구조 오류는 `409 training_metrics_invalid`로 구분한다. CP-SAT baseline은 아직 구현하지 않았다.
 
 #### 완료 조건
 
@@ -428,21 +444,31 @@ full   : 주문 100개, pass 30개
 
 #### 구현 순서
 
-1. [ ] 공통 레이아웃과 라우팅
-2. [ ] API client와 오류 처리
-3. [ ] 대시보드
-4. [ ] 시나리오 목록
-5. [ ] 시나리오 상세
-6. [ ] 주문과 strip 목록
-7. [ ] 촬영 기회 검사
-8. [ ] 환경 및 보상 파라미터 수정
-9. [ ] 결과 지표 화면
+1. [x] 공통 레이아웃과 라우팅
+2. [x] API client와 오류 처리
+3. [x] 대시보드
+4. [x] 시나리오 목록
+5. [x] 시나리오 상세
+6. [x] 주문과 strip 목록
+7. [x] 촬영 기회 검사
+8. [x] 읽기 전용 환경 및 보상 파라미터 표시
+9. [x] 결과 지표 화면
 
 #### 완료 조건
 
 - 준비된 시나리오의 모든 주요 데이터를 웹에서 조회할 수 있다.
-- 허용된 주문 속성과 파라미터를 수정하고 검증 결과를 확인할 수 있다.
+- 환경 및 보상 파라미터와 시나리오 구조 검증 결과를 읽기 전용으로 확인할 수 있다.
 - 로딩, 빈 데이터 및 오류 상태가 구분되어 표시된다.
+
+현재 단계 10은 검증된 Backend 조회 API를 사용하는 읽기 전용 탐색 화면으로 한정한다. 시나리오 생성·복제·삭제와 주문 속성, 환경·보상 파라미터 수정은 후속 범위다. 이 기능을 추가할 때에는 기존 시나리오와 실행 이력의 재현성을 보존하도록 새 scenario version 또는 명시적 복제본을 만들고, 변경 요청 검증·저장·artifact 재생성·실행 snapshot 정책을 함께 확정한다. 따라서 읽기 전용 화면의 라우팅, 선택 상태, API client 및 표 컴포넌트는 이후 mutation UI를 붙일 수 있게 구성하되 현재는 변경 요청을 보내지 않는다.
+
+첫 구현 단위에서는 `react-router-dom`으로 `/scenarios`와 `/scenarios/:scenarioId` 경로를 만들고, 공통 `getJson()` client가 Backend의 `{ error: { code, message } }` 응답을 `ApiError`로 변환한다. Vite 개발 서버는 `/api`를 FastAPI 기본 주소 `http://127.0.0.1:8000`으로 proxy하며, 배포 환경에서는 `VITE_API_BASE_URL`로 기본 경로를 바꿀 수 있다. 시나리오 목록은 `GET /api/scenarios`를 사용하고 로딩·빈 목록·오류·재시도 상태를 제공한다. 상세 경로는 다음 단위의 탭 구현을 위한 진입점만 마련했다.
+
+상세 화면은 `GET /api/scenarios/{scenario_id}`로 상단 개요와 읽기 전용 위성·환경·보상 설정을 로드한다. URL query의 `tab`, `orderId`, `stripId`, `passId`, `priority`, `kind`, `offset`은 탭과 선택·필터 상태를 보존한다. 주문, strip, 촬영 기회, 검증은 각각 전용 API를 독립적으로 요청하므로 한 탭의 오류가 다른 조회 결과를 가리지 않는다. 주문에서 Strip, Strip에서 촬영 기회로 이동할 때 관련 filter를 자동 적용하며, 모든 목록은 Backend pagination을 그대로 사용한다.
+
+대시보드가 실행 ID를 사전에 알 필요 없도록 `GET /api/training-runs`와 `GET /api/evaluation-runs` 목록 API를 추가했다. 두 API는 `scenario_id`, `status`, `offset`, `limit` 필터와 최신 `updated_at` 순서를 사용하고 SQLite run metadata만 반환한다. 대시보드는 최근 시나리오, 학습 run, 평가 run을 표시하며 artifact summary/replay를 목록에서 열지 않는다. 결과 지표 상세 화면은 완료된 평가 run을 선택한 뒤 기존 `GET /api/results/{run_id}`를 호출하는 다음 작업으로 남긴다.
+
+`/results`는 완료된 평가 run 목록을, `/results/{run_id}`는 검증된 summary의 total return, priority score, captures, 완료 order/strip, 평균 off-nadir 및 reward breakdown을 읽기 전용으로 표시한다. 결과 API의 미완료·실패·artifact 누락·무결성 오류는 각각의 구조화된 error code에 맞는 안내로 표시한다. 타임라인과 episode 재생 UI는 후속 단계에서 연결한다.
 
 ---
 
@@ -450,15 +476,15 @@ full   : 주문 100개, pass 30개
 
 #### 작업
 
-- [ ] 지도 라이브러리 선정
-- [ ] 주문 geometry 표시
-- [ ] strip 표시
-- [ ] 완료/부분 완료/미촬영 상태 표시
-- [ ] orbit/pass 및 촬영 결과 표시
-- [ ] 24시간 촬영 타임라인
-- [ ] 우선순위 색상
-- [ ] 자세와 reward 상세 tooltip
-- [ ] 지도와 타임라인 선택 연동
+- [x] 지도 라이브러리 선정 (Leaflet)
+- [x] 주문 geometry 표시
+- [x] strip 표시
+- [x] 완료/부분 완료/미촬영 상태 표시
+- [x] orbit/pass 및 촬영 결과 표시
+- [x] 24시간 촬영 타임라인
+- [x] 우선순위 색상
+- [x] 자세와 reward 상세 panel (episode step 상세 연동)
+- [x] 지도와 타임라인 선택 연동
 
 #### 완료 조건
 
@@ -466,22 +492,26 @@ full   : 주문 100개, pass 30개
 - 지도에서 strip을 선택하면 관련 촬영 결과를 조회할 수 있다.
 - 대량 strip에서도 기본적인 탐색이 가능하다.
 
+2026-07-22 첫 구현에서는 `leaflet`과 `@types/leaflet`을 추가했다. 시나리오 지도는 주문 윤곽을 기본 레이어로 유지하고, 선택한 pass의 ground track·footprint·접근 가능한 strip 또는 선택 strip만 상세 SVG 레이어로 그린다. 따라서 full 시나리오에서 모든 strip과 footprint를 항상 렌더링하지 않는다. 결과 상세는 검증된 `GET /api/results/{run_id}/timeline` schedule을 24시간 목록으로 표시하고 URL query `captureId`로 선택 상태를 보존한다. schedule에 있는 strip은 완료, 없는 strip은 미촬영으로 표시하고 주문은 전체 strip 완료 수에 따라 완료·부분 완료·미촬영으로 집계한다. 선택 capture의 `pass_id`·`strip_id`를 지도에 전달하며, 지도 strip 선택은 해당 strip의 첫 capture로 다시 이동한다. `GET /api/results/{run_id}/episodes/evaluation/steps/{step_index}`은 선택 capture의 자세 전후 상태, reward breakdown 및 후보 mask 근거를 재계산 없이 상세 패널에 제공한다.
+
 ---
 
 ### 단계 12. 학습 제어와 실시간 상태
 
 #### 작업
 
-- [ ] 학습 설정 화면
-- [ ] 학습 시작
-- [ ] 안전한 중지 요청
-- [ ] 실행 상태 표시
-- [ ] 진행률 및 로그 갱신
-- [ ] 학습 곡선
-- [ ] checkpoint와 최종 모델 표시
-- [ ] 연결 재시도 및 상태 복구
+- [x] 학습 설정 화면
+- [x] 학습 시작
+- [x] 안전한 중지 요청
+- [x] 실행 상태 표시
+- [ ] 진행률 및 로그 갱신 (metrics polling만 구현, 텍스트 로그는 미제공)
+- [x] 학습 곡선
+- [x] checkpoint와 최종 모델 표시
+- [x] 연결 재시도 및 상태 복구
 
 초기에는 REST polling으로 시작할 수 있고 필요하면 WebSocket으로 교체한다.
+
+2026-07-22 1차 구현은 `/training` 설정 화면과 `/training/{run_id}` 상태 화면을 추가했다. 화면은 `POST /api/training-runs`로 snapshot을 저장해 worker를 시작하고, active 상태에서 3초마다 run detail과 metrics를 polling한다. 새로고침 뒤에는 URL run ID로 같은 상태를 다시 읽으며, 시작 화면은 단일 local worker가 active이면 새 시작을 비활성화한다. `GET /api/training-runs/{run_id}/detail`은 검증된 config snapshot, checkpoint 파일명 목록, final model/final evaluation 존재 여부를 반환한다. 초기 곡선은 저장된 evaluation return을 표시한다. 텍스트 worker 로그와 상세 PPO loss/value 지표는 현재 artifact 계약에 없으므로 후속 범위다.
 
 #### 완료 조건
 
@@ -495,15 +525,22 @@ full   : 주문 100개, pass 30개
 
 #### 작업
 
-- [ ] 처음/이전/재생/정지/다음/마지막 제어
-- [ ] 재생 속도 조절
-- [ ] 특정 step 이동
-- [ ] 현재 state와 action 후보 표시
-- [ ] action mask와 사유 표시
-- [ ] 선택 action 및 reward breakdown 표시
-- [ ] 지도와 타임라인 동기화
+- [x] 처음/이전/재생/정지/다음/마지막 제어
+- [x] 재생 속도 조절
+- [x] 특정 step 이동
+- [x] 현재 state와 action 후보 표시
+- [x] action mask와 사유 표시
+- [x] 선택 action 및 reward breakdown 표시
+- [x] 지도와 타임라인 동기화
 - [ ] RL 및 기준 정책 지표 비교
-- [ ] 서로 다른 run 비교
+- [x] 서로 다른 완료 EvaluationRun 비교
+- [ ] PPO 최종 평가와 CP-SAT 기준해를 worker 기반 EvaluationRun으로 색인
+
+2026-07-23 1차 구현은 `/results/{run_id}/replay`에서 단일 `evaluation` episode를 재생한다. episode 요약의 step 수를 범위로 사용하고 `GET /api/results/{run_id}/episodes/evaluation/steps/{step_index}`으로 선택 step만 읽는다. 재생은 저장 artifact를 재계산하지 않으며, 선택 action·state 전후·reward breakdown·후보 및 action mask 사유를 표시한다. 촬영 action이면 대응하는 pass/strip을 지도에 강조한다.
+
+같은 날 추가한 `/comparisons` 화면은 완료된 `EvaluationRun`을 scenario·seed별로 묶고 사용자가 선택한 run 집합으로 `POST /api/policy-comparisons`를 호출한다. 생성된 immutable `PolicyComparison`은 total return, priority score, 완료 strip/order, captures를 표로 보여 주며, 각 행은 artifact에 보존한 `evaluation_run_id`로 정확한 결과·replay 화면으로 이동한다. 현재 정식 `EvaluationRun`으로 색인되는 것은 기준 정책뿐이므로, PPO 최종 평가와 CP-SAT 결과를 같은 비교 화면에 넣는 작업은 남아 있다.
+
+PPO 최종 평가와 CP-SAT 기준해는 모두 공통 summary·replay artifact와 completed `EvaluationRun`으로 색인해야 한다. CP-SAT은 full 규모에서 HTTP 요청을 오래 점유할 수 있으므로 PPO worker와 하나의 로컬 실행 슬롯을 공유하는 optimization worker로 분리한다.
 
 #### 완료 조건
 

@@ -256,6 +256,8 @@ action = (strip_id, opportunity_id)
 
 Gym wrapper의 `action_masks()`는 `skip + 128개 후보`에 대응하는 길이 129의 boolean 배열을 반환한다. Maskable PPO는 이 배열을 이용해 마스킹된 action의 선택 확률을 0으로 만든다.
 
+CP-SAT은 PPO의 observation, action mask, reward 또는 policy update에 입력되지 않는 독립적인 최적화 baseline이다. PPO 최종 평가와 CP-SAT 결과는 같은 scenario·seed에서 공통 simulator replay와 `EvaluationRun` artifact로 저장한 뒤 사후 비교한다. full 규모 solver 실행이 HTTP 요청을 막지 않도록 CP-SAT은 PPO와 하나의 로컬 실행 슬롯을 공유하는 별도 worker에서 실행한다.
+
 Action mask를 사용하지 않는 일반 Gym 검사나 외부 호출이 마스킹된 action을 전달하면 실제 촬영을 실행하지 않고 `skip`으로 안전하게 변환한다. 해당 사실과 요청·실행 action은 `info`에 기록하며 별도 패널티는 주지 않는다.
 
 ## 9. 관측 상태
@@ -477,7 +479,9 @@ CP-SAT 결과는 정책 이름 `cp_sat_baseline`의 평가 결과처럼 저장�
 - CP-SAT 모델이 선택한 opportunity 목록은 항상 simulator로 재검증하며, simulator return을 정책 비교의 공식 점수로 사용한다.
 - full 시나리오 CP-SAT은 단계 7A 완료 조건에 포함하지 않고 후속 분석으로 둔다.
 
-위 기본값은 구현을 시작하기 위한 보수적 선택이며, 사용자가 solver 실행 시간이나 목적함수 정합성 기준을 더 엄격하게 요구하면 단계 7A 구현 전에 조정한다.
+2026-07-13 1차 구현에서는 OR-Tools CP-SAT을 `ortools>=9.14,<10` 의존성으로 추가하고, `rl_core/optimization.py`에 `solve_cp_sat_baseline()`을 구현했다. 목적함수는 `strip_base_reward + angle_bonus`만 사용하며, 미완료 패널티는 선택 목록을 simulator로 replay한 공식 return에서 확인한다. tiny 시나리오에서는 10초 제한 안에 `OPTIMAL` 상태와 gap 0을 테스트로 확인한다.
+
+2026-07-19 검증에서는 `INFEASIBLE`과 `UNKNOWN` 상태를 선택 목록과 objective/bound/gap이 없는 artifact로 저장·복원하는 경로를 테스트했다. `UNKNOWN`은 time limit처럼 해를 찾기 전에 종료된 경우를 포함하므로, artifact의 `status`와 요청한 `time_limit_sec`를 함께 해석한다. 또한 Random valid, 세 greedy 정책, Maskable PPO 및 CP-SAT baseline을 하나의 `PolicyComparison`으로 저장·복원했다. small 시나리오(seed 20260707, solver seed 17, 60초 제한)도 `OPTIMAL`, gap 0 및 simulator replay 검증을 완료했다.
 
 ## 13. 초기 알고리즘 방향
 

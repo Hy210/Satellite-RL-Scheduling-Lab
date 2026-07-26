@@ -163,7 +163,7 @@ strip_base_reward = P / N
 
 ### 5.3 RL 결과에는 기준점이 필요하다
 
-**상태:** 확정  
+**상태:** 확정
 **마지막 갱신:** 2026-07-13
 
 학습 return만으로 정책의 품질을 판단하기 어렵다. Random valid, Earliest deadline first, Priority greedy 및 Priority-efficiency greedy와 동일 시나리오에서 비교해야 한다.
@@ -171,6 +171,8 @@ strip_base_reward = P / N
 축소된 문제에서는 전수조사나 수리 최적화 결과와 비교해 optimality gap을 측정할 수 있다. 큰 문제에서는 최적성 보장보다 주요 휴리스틱 대비 개선을 평가한다.
 
 2026-07-13 설계 구체화에서 CP-SAT은 RL 결과를 고치는 후처리기가 아니라 `tiny`/`small` 시나리오의 정교한 기준해를 만드는 solver baseline으로 정의했다. 각 opportunity의 선택 여부를 0/1 변수로 두고, 같은 strip 중복, 시간 겹침, 최소 촬영 간격 및 자세 전환 불가능 후보 쌍을 제약으로 차단한다. CP-SAT 선택 결과는 기존 simulator로 다시 평가해 `EpisodeReplay`와 `PolicyComparison`에 포함해야 한다.
+
+2026-07-13 1차 구현에서 `rl_core/optimization.py`는 tiny 시나리오에 대해 OR-Tools CP-SAT 기준해를 생성하고, 선택된 opportunity ID 목록을 simulator replay로 재검증한다. 이 구현은 CP-SAT 목적함수와 공식 simulator return을 분리해 기록하므로, solver 모델의 선형 근사와 실제 reward breakdown의 차이를 추적할 수 있다.
 
 이 결정의 의미는 Maskable PPO가 Random valid보다 나은지뿐 아니라, 최적화 solver 기준해에 얼마나 가까운지 볼 수 있게 하는 것이다. 다만 CP-SAT baseline의 신뢰도는 solver 모델이 simulator 제약과 reward 의미를 얼마나 정확히 반영하는지에 달려 있다.
 
@@ -205,7 +207,26 @@ RL 학습은 오래 실행되고 CPU 또는 GPU를 지속적으로 사용할 수
 
 초기에는 로컬 단일 worker로 시작하고 분산 작업 큐는 필요할 때 검토한다.
 
-### 6.3 초기 개발 기반과 코어 구현
+### 6.3 SQLite 메타데이터와 파일 artifact의 분리
+
+**상태:** 확정
+**마지막 갱신:** 2026-07-19
+
+SQLite는 시나리오와 실행의 조회·상태 복구에 필요한 작은 메타데이터와 artifact의 상대 경로·해시만 저장하고, Scenario JSON, replay, 비교 결과, 모델 파일 같은 대용량 원본은 로컬 파일로 유지한다. 이 분리는 SQLite에 대형 step 로그를 중복 저장하지 않으면서도 Backend가 파일 누락과 손상을 확인할 수 있게 한다.
+
+파일과 DB는 하나의 원자 transaction으로 묶을 수 없으므로, JSON은 임시 파일을 fsync한 뒤 원자 교체하고 DB 색인은 그 다음에 반영한다. 교체 실패 시 기존 완성 파일은 유지하며, DB에만 남은 누락 artifact는 복구 대상으로 명시적으로 탐지한다.
+
+실행 상태 복구는 Backend가 아니라 worker supervisor의 책임이다. Backend만 재시작해도 별도 worker가 계속 실행될 수 있으므로, worker 부재를 확인한 supervisor 시작 시점에만 `running`과 `stop_requested` 상태를 terminal 상태로 정리한다. 초기 버전에서는 불확실한 자동 재개보다 checkpoint를 보존하고 사용자가 새 run으로 명시적으로 재시작하는 정책을 택한다.
+
+초기 Backend 조회는 SQLite 메타데이터 목록과 검증된 Scenario 원본 조회를 분리한다. 목록에서 대용량 geometry와 opportunity를 반복 전송하지 않아 대시보드·목록 화면의 기본 조회 비용을 제한하고, 상세 화면에서만 전체 Scenario를 읽는다. 이 원칙은 이후 주문·strip·opportunity 전용 조회 API를 추가할 때도 유지한다.
+
+Scenario 하위 목록은 초기 규모에서 전체 Scenario를 메모리로 읽어 필터·정렬한 뒤 pagination 한다. full 가상 시나리오의 opportunity 수는 수천 개 수준이라 조회 전용 초기 Backend에는 충분하지만, 실제 데이터가 커지면 opportunities를 SQLite에서 직접 filter/paginate할 수 있도록 정규화해야 한다.
+
+저장된 Scenario의 재검증은 구조 검증과 artifact 무결성을 함께 확인해야 한다. Pydantic 구조 검증만으로는 외부에서 파일을 유효한 JSON으로 바꾼 경우를 찾지 못하므로, 저장 시 기록한 SHA-256과 실제 파일의 hash도 비교한다. 반면 action mask 조건은 scenario 파일이 아니라 simulator state에 의존하므로 validation API의 오류 목록에 포함하지 않는다.
+
+기준 정책 평가는 학습 worker보다 먼저 동기 API로 연결할 수 있다. 결정론적 휴리스틱은 짧은 시간에 종료되고 `EpisodeReplay`를 바로 남기므로, EvaluationRun 상태 전이·artifact 저장·오류 반환을 검증하는 안전한 첫 실행 경로가 된다. 장시간 학습이나 solver 실행을 같은 HTTP 요청에서 처리하면 서버 응답성과 worker 분리 원칙을 해치므로 후속 단계에서 분리한다.
+
+### 6.4 초기 개발 기반과 코어 구현
 
 **상태:** 확정  
 **마지막 갱신:** 2026-07-06
@@ -214,7 +235,7 @@ RL 학습은 오래 실행되고 CPU 또는 GPU를 지속적으로 사용할 수
 
 결정론적 시뮬레이션 코어는 Gymnasium이나 웹 프레임워크에 의존하지 않는다. 데이터 계약, seed 기반 시나리오 생성기와 이벤트 시뮬레이터를 먼저 독립적으로 검증했으며, 이후 기준 정책과 Gymnasium wrapper가 이 코어를 재사용한다.
 
-### 6.4 Full 가상 시나리오 초기 관찰
+### 6.5 Full 가상 시나리오 초기 관찰
 
 **상태:** 관찰  
 **마지막 갱신:** 2026-07-07
@@ -225,7 +246,7 @@ RL 학습은 오래 실행되고 CPU 또는 GPU를 지속적으로 사용할 수
 
 이 값들은 생성기 동작 확인을 위한 단일 seed 관찰이며 일반적인 분포나 성능 기준으로 간주하지 않는다. 후보 128개 제한과 10초 양자화의 영향은 여러 seed 및 향후 실제 궤도 데이터에서 재검토해야 한다.
 
-### 6.5 기준 정책 구현에서 얻은 지식
+### 6.6 기준 정책 구현에서 얻은 지식
 
 **상태:** 확정과 관찰 혼합  
 **마지막 갱신:** 2026-07-07
@@ -315,12 +336,29 @@ PPO median return은 `5.326453530248241`, Random valid median return은 `5.32539
 | 일반화 평가 | 검토 필요 | 여러 시나리오 학습 시 훈련/검증/평가 seed 분리 필요 |
 | 후보 128개 제한 | 검토 필요 | 실제 시나리오에서 동시 후보 분포와 잘림 영향 측정 필요 |
 | tiny 성능 개선 폭 | 관찰 | 단계 6에서는 Random valid보다 근소하게 높았지만 완료 strip/order 수가 같아 larger scenario에서 재검증 필요 |
-| CP-SAT baseline 정합성 | 검토 필요 | solver 제약과 simulator action mask/reward가 어긋나면 optimality gap 해석이 왜곡되므로 단계 7A에서 재검증 필요 |
+| CP-SAT baseline 정합성 | 관찰 | tiny와 small 시나리오의 CP-SAT 선택 결과는 simulator replay 검증을 통과했다. `INFEASIBLE`·`UNKNOWN` artifact와 전체 정책 비교도 테스트했지만, 실제 대규모 입력에서 time limit이 발생했을 때의 성능·bound 해석은 후속 분석이 필요하다. |
 
 ## 9. 변경 기록
 
+- 2026-07-23: 정책 비교는 화면이 최신 실행을 추정해 합치는 방식 대신 사용자가 같은 scenario·seed의 완료 EvaluationRun을 명시적으로 선택해 immutable artifact로 고정한다. 각 비교 행에 evaluation run ID를 보존하면 동일 정책을 여러 번 실행했어도 결과와 replay 링크가 다른 실행으로 연결되지 않는다.
+- 2026-07-23: episode 재생은 전체 replay를 브라우저에 다시 계산하거나 한꺼번에 적재하지 않고, episode 요약의 step 수와 direct step 조회를 이용해 현재 step만 읽도록 구성했다. 이 방식은 후보와 action mask 상세는 유지하면서 큰 replay의 초기 화면 비용을 제한한다.
+- 2026-07-22: 학습 제어 UI는 worker의 메모리 상태가 아니라 저장된 `TrainingRun`, config snapshot 및 append-only metrics만 polling해야 새로고침과 Backend 재시작 뒤에도 같은 run을 복구할 수 있다. `stop_requested`는 완료 상태가 아니라 cooperative cancellation이 checkpoint를 보존 중인 중간 상태이므로 별도 표시한다.
+- 2026-07-22: 평가 지도에서 strip은 schedule의 capture 유무로 이진 완료 상태를 판단하고, 부분 완료는 여러 strip을 가진 order에만 적용했다. 우선순위와 실행 상태를 각각 테두리·채움으로 분리하면 중요한 주문과 실제 수행 결과를 같은 지도에서 혼동 없이 볼 수 있다. 선택 capture의 상세 설명은 schedule을 확장하지 않고, `step_index`로 검증된 replay step을 직접 조회해 제공한다.
+- 2026-07-22: 지도는 Leaflet으로 시작하고, 주문 윤곽만 기본 렌더링한 뒤 선택 pass 또는 strip의 상세 레이어를 추가하는 방식으로 정했다. full 규모에서 모든 strip·footprint를 동시에 SVG로 만들지 않아 기본 탐색 비용을 제한한다. 결과 선택은 `captureId` URL query로 지도와 24시간 타임라인이 공유하며, reward/action mask의 완전한 설명은 schedule API가 아닌 episode step 로그의 책임으로 유지한다.
+- 2026-07-20: 대시보드의 run 목록은 SQLite metadata만 읽고 artifact summary/replay는 선택한 결과 상세에서만 검증한다. 이 경계는 목록을 빠르게 유지하고 손상된 한 artifact가 최근 실행 목록 전체를 사용할 수 없게 하는 것을 막는다.
+- 2026-07-20: 시나리오 상세 탐색은 전체 Scenario로 상단 설정·개수를 한 번 읽고, 주문·strip·촬영 기회는 전용 pagination API로 별도 요청하도록 구성했다. 이는 대용량 목록 렌더링을 개요 조회와 분리하며, URL query에 선택·필터 상태를 보존해 다음 지도 및 재생 화면에서도 같은 탐색 위치를 재사용할 수 있게 한다.
+- 2026-07-20: 읽기 전용 Frontend의 첫 단위에서는 BrowserRouter와 공통 API client를 분리했다. UI는 HTTP 상태만으로 오류를 표시하지 않고 Backend가 제공한 구조화된 오류 code/message를 함께 사용하며, 개발 환경의 `/api` proxy와 배포 환경의 `VITE_API_BASE_URL`을 분리해 화면 코드에 서버 주소를 고정하지 않는다.
+- 2026-07-20: 단계 10 Frontend는 시나리오·주문·strip·opportunity와 검증 결과를 읽기 전용으로 탐색한다. 현재 변경 API 없이 UI만 먼저 열면 실행 이력과 파생 artifact의 정합성을 깨뜨릴 수 있으므로, 수정 기능은 scenario version 또는 복제본, 검증, 파생 데이터 재생성, run snapshot 정책을 함께 확정한 뒤 추가한다.
+- 2026-07-20: 평가 replay는 현재 실행마다 하나이지만 Backend에서는 예약된 `evaluation` episode ID로 노출한다. 이 방식은 현재의 단일 replay 파일과 무결성 검증 경계를 유지하면서도, 후속 다중 평가 episode 확장 시 URL 계약을 바꾸지 않게 한다. 상세 step은 후보와 action mask 사유를 포함하므로 타임라인과 분리해 pagination한다.
+
 - 2026-07-08: 기준 정책과 Maskable PPO 평가가 공유하는 `EpisodeReplay` 로그 계약과 `PolicyComparison` 비교 artifact를 기록했다.
 - 2026-07-13: CP-SAT을 후처리가 아닌 축소 시나리오용 최적화 기준해 baseline으로 정의하고, simulator replay로 재검증해야 한다는 설계 근거를 기록했다.
+- 2026-07-13: OR-Tools CP-SAT 기반 tiny baseline 구현과 simulator replay 검증 결과를 기록했다.
+- 2026-07-19: CP-SAT의 해 없음 artifact 경로와 RL·휴리스틱·CP-SAT 통합 비교를 검증하고, small 시나리오에서 최적해와 replay 정합성을 확인했다.
+- 2026-07-20: 결과 조회는 재계산 대신 artifact 색인의 소유자·종류·SHA-256과 Pydantic 계약, 실행 metadata 일치를 함께 검증해야 한다는 경계를 기록했다. 이 방식은 유효한 JSON으로 외부 변경된 평가 결과나 다른 실행의 artifact 참조를 화면에 노출하지 않는다.
+- 2026-07-20: 장시간 PPO 학습은 HTTP 요청에서 직접 실행하지 않고, 저장된 run·scenario·config snapshot을 다시 읽는 별도 worker process로 분리했다. 초기 단일 worker 제한은 GPU/CPU 경합과 artifact 혼합을 피하는 범위 제약이며, Backend 재시작과 worker 장애 복구를 같은 사건으로 취급하지 않는다.
+- 2026-07-20: 학습 중지는 process 강제 종료 대신 PPO callback의 step 경계에서 상태를 확인하는 cooperative cancellation으로 처리한다. 이 경계에서 checkpoint를 보존하면 모델 파일 쓰기나 rollout 처리 중단으로 인한 손상 위험을 줄일 수 있으며, 중지된 model은 최종 평가 결과로 취급하지 않는다.
+- 2026-07-20: 실행 중인 학습 metrics는 계속 append되므로 고정 artifact의 SHA-256 방식으로 검증하지 않는다. 대신 각 JSONL 행의 구조를 검증하고, active run의 마지막 미완성 행만 polling 시 일시적으로 제외한다. 학습 곡선에는 replay를 중복 저장하지 않아 결과 artifact와 로그의 책임을 분리한다.
 - 2026-07-08: 단계 6 Maskable PPO 반복 seed 성능 검증 결과와 tiny 시나리오 해석상 주의점을 기록했다.
 - 2026-07-07: Maskable PPO 학습 산출물 구조와 학습/평가 seed 분리의 의미를 기록했다.
 - 2026-07-07: strip과 footprint를 pass 진행 방향에 맞춘 polygon으로 바꾸고 pitch 0 해석을 기록했다.

@@ -2,13 +2,13 @@
 
 ## 현재 상태
 
-- 마지막 갱신일: 2026-07-13
+- 마지막 갱신일: 2026-07-23
 - 작업 디렉터리: `D:\HY\01. Developer\Project\NSICPS_RL_Scheduling`
-- 프로젝트 상태: 구현 계획 단계 0~7 완료, 단계 2A 완료
-- 현재 구현 단계: 단계 7A CP-SAT 최적화 기준해 구현 전
+- 프로젝트 상태: 구현 계획 단계 0~9 완료, 단계 2A 및 단계 7A 완료
+- 현재 구현 단계: 단계 13 Episode 재생 및 정책 비교 (PPO/CP-SAT 비교 확장 대기)
 - 진행 중 작업: 없음
 - Blocker: 없음
-- Git 상태: 작업 트리에 CP-SAT baseline 설계 및 RL solver 학습 문서 갱신 변경 있음
+- Git 상태: 작업 트리에 CP-SAT baseline, 저장 계층, Backend 및 문서 갱신 변경 있음
 - Git 원격: `https://github.com/Hy210/Satellite-RL-Scheduling-Lab.git`
 
 ## 현재 목표
@@ -80,6 +80,52 @@
 - `docs/data-format.md`에 `OptimizationBaselineResult` artifact 초안을 추가
 - `docs/implementation-plan.md`에 단계 7A CP-SAT 최적화 기준해 구현 단계를 추가
 - `docs/project-knowledge.md`에 CP-SAT baseline의 설계 근거와 simulator 정합성 위험을 기록
+- OR-Tools CP-SAT 의존성을 `pyproject.toml`에 추가
+- `OptimizationBaselineResult` Pydantic artifact 계약 구현
+- `rl_core/optimization.py`에 tiny 시나리오용 CP-SAT baseline 구현
+- opportunity 0/1 선택 변수, strip 중복 금지, 시간 겹침, 최소 촬영 간격, 자세 전환 충돌 제약 구현
+- CP-SAT 선택 결과를 시간순 action으로 변환해 기존 simulator로 replay 검증
+- CP-SAT 결과를 `cp_sat_baseline` 정책 이름의 `EpisodeReplay`와 `PolicyComparison`에 연결
+- CP-SAT baseline JSON 저장/복원 helper 구현
+- CP-SAT `INFEASIBLE` 및 `UNKNOWN` 상태 artifact 저장/복원 테스트 추가
+- Random valid, 세 greedy 정책, Maskable PPO 및 CP-SAT baseline 통합 `PolicyComparison` 테스트 추가
+- small CP-SAT baseline의 solver 결과와 simulator replay 정합성 확인
+- `rl_core/storage.py`에 SQLite metadata와 JSON/binary artifact 파일을 관리하는 `StorageRepository` 구현
+- scenario, training run, evaluation run, 설정 snapshot 및 artifact 상대 경로·SHA-256·크기 저장 구현
+- JSON 임시 파일 fsync 후 원자 교체, 누락 artifact 탐지 및 기존 바이너리 artifact 색인 구현
+- 저장 계층 전용 round-trip, 경로 이탈 차단, 누락 artifact, 원자 교체 실패 보호 테스트 추가
+- `recover_interrupted_runs()`로 worker 중단 후 training/evaluation run의 terminal 상태 복구 구현
+- run 상태 전이 검증과 terminal 상태의 재실행 차단 구현
+- `train_maskable_ppo()`의 선택적 저장소 연결로 시작·정상 종료·예외 종료 상태 기록 구현
+- FastAPI, Uvicorn 및 HTTPX 의존성 추가
+- `backend.app.create_app()` app factory와 health/version API 구현
+- SQLite 시나리오 메타데이터 목록 및 Scenario 상세 조회 API 구현
+- 구조화된 scenario not found/artifact missing 오류 응답과 Backend API 테스트 추가
+- order, strip, opportunity 전용 목록 API와 공통 pagination 구현
+- order priority, strip order ID, opportunity order/strip/pass/kind 필터 구현
+- 목록 DTO에 하위 개수와 off-nadir 값을 추가하고 API 필터·pagination 테스트 보강
+- `validate_scenario()`로 Scenario artifact 존재·SHA-256·Pydantic 구조 재검증 구현
+- Scenario validation API와 hash 불일치·구조 오류를 `valid: false`로 반환하는 issue 계약 추가
+- validation 결과가 artifact를 변경하지 않는 저장소·Backend 테스트 추가
+- `POST /api/evaluation-runs` 기준 정책 동기 실행 API 구현
+- EvaluationRun의 running/completed/failed 상태와 replay·summary artifact 저장 연결
+- 허용 정책 검증, 실행 실패 500 응답 및 failed run 저장 테스트 추가
+- `GET /api/evaluation-runs/{run_id}` 실행 상태, `GET /api/results/{run_id}` 요약, `GET /api/results/{run_id}/timeline` 촬영 타임라인 조회 API 구현
+- 결과 artifact의 소유자·종류·SHA-256·Pydantic 구조 및 run metadata 일치 검증 구현
+- 미완료/실패 실행, artifact 누락·손상을 구분하는 결과 조회 오류와 Backend 테스트 추가
+- `POST /api/training-runs` 비동기 학습 run 생성 API 구현
+- `backend.workers.TrainingWorkerSupervisor`의 단일 non-daemon spawn process와 저장된 run·scenario·config snapshot 복원 worker 구현
+- 서버 고정 artifact root, worker 중복/시작 실패 및 worker 내부 예외의 failed 상태 저장 테스트 추가
+- `POST /api/training-runs/{run_id}/stop` cooperative cancellation API 구현
+- PPO callback의 stop 상태 polling, 즉시 checkpoint 보존, `running → stop_requested → stopped` 상태 전이 구현
+- 중지 run의 final evaluation/replay/final model 미생성과 worker 시작 전 중지 처리 테스트 추가
+- `GET /api/training-runs/{run_id}` 상태 및 `GET /api/training-runs/{run_id}/metrics` 학습 곡선 조회 API 구현
+- metrics JSONL의 replay 중복 제거, pagination, active run 마지막 미완성 행 보류 및 손상 로그 오류 처리 구현
+
+- `GET /api/results/{run_id}/episodes`와 `GET /api/results/{run_id}/episodes/{episode_id}/steps` 구현
+- 단일 evaluation replay를 예약된 `evaluation` episode ID로 노출하고 원본 `ReplayStep`을 pagination으로 제공
+- episode/step 조회에도 기존 summary/replay artifact 소유자·종류·SHA-256·Pydantic·run metadata 검증 경계 재사용
+- `.venv\Scripts\python.exe -m pytest tests/test_backend.py -q`: 17개 테스트 통과 (외부 Starlette/httpx deprecation warning 1건)
 
 ## 주요 파일
 
@@ -100,9 +146,11 @@
 - `rl_core/policies.py`: 기준 정책과 공통 평가기
 - `rl_core/gym_env.py`: Gymnasium 및 Maskable PPO 연결 wrapper
 - `rl_core/replay.py`: 평가 episode 재생 로그 생성과 JSON 저장/복원
+- `rl_core/optimization.py`: OR-Tools CP-SAT 기반 최적화 기준해 생성과 simulator replay 검증
 - `rl_core/training.py`: Maskable PPO 학습, 평가 및 artifact 저장
 - `tests/`: 데이터, 생성기, 시뮬레이터 및 통합 테스트
 - `tests/test_training.py`: 단계 6 학습 artifact와 reload 평가 smoke 테스트
+- `tests/test_optimization.py`: 단계 7A CP-SAT baseline, replay 및 artifact 테스트
 - `frontend/`: 최소 React/TypeScript/Vite 실행 골격
 
 ## 수행한 검증
@@ -131,6 +179,9 @@
 - 대표 PPO run의 `final-evaluation.json`에 reward breakdown과 step별 `decisions` 포함 확인
 - `.venv\Scripts\python.exe -m ruff check .`: 통과
 - `.venv\Scripts\python.exe -m mypy`: 통과
+- `.venv\Scripts\python.exe -m pytest tests/test_backend.py tests/test_workers.py -q`: 15개 테스트 통과 (동일 외부 warning 1건)
+- `.venv\Scripts\python.exe -m pytest tests/test_backend.py tests/test_training.py tests/test_workers.py -q`: 22개 테스트 통과 (동일 외부 warning 1건)
+- `.venv\Scripts\python.exe -m pytest tests/test_backend.py tests/test_training.py -q`: 21개 테스트 통과 (동일 외부 warning 1건)
 - `git status --short --ignored`: `data/runs/`는 ignored로 표시되어 학습 산출물이 Git 추적 대상에서 제외됨을 확인
 - `.venv\Scripts\python.exe -m pytest tests/test_policies.py tests/test_training.py`: 26개 테스트 통과
 - `.venv\Scripts\python.exe -m pytest`: 67개 테스트 통과
@@ -144,6 +195,37 @@
 - 2026-07-13 CP-SAT 기본 개념 설명 및 문서 갱신만 수행했으며, 코드 변경이 없어 테스트는 실행하지 않음
 - 2026-07-13 CP-SAT baseline 설계 문서 반영만 수행했으며, 코드 변경이 없어 테스트는 실행하지 않음
 - 2026-07-13 CP-SAT 이해 확인과 설계 애매점 정리 문서 갱신만 수행했으며, 코드 변경이 없어 테스트는 실행하지 않음
+- `.venv\Scripts\python.exe -m pip install -e .[dev]`: OR-Tools 포함 editable 설치 성공
+- `.venv\Scripts\python.exe -m pytest tests/test_optimization.py -q`: 2개 테스트 통과
+- `.venv\Scripts\python.exe -m ruff check .`: 통과
+- `.venv\Scripts\python.exe -m mypy`: 통과
+- `.venv\Scripts\python.exe -m pytest`: 70개 테스트 통과
+- `.venv\Scripts\python.exe -m ruff format --check .`: 통과
+- tiny CP-SAT baseline(seed 20260707, solver seed 17, 10초 제한): `OPTIMAL`, objective `5.377856`, bound `5.377856`, gap `0.0`, replay return `5.377855026155413`, completed strips `9`, completed orders `5`
+- `.venv\Scripts\python.exe -m pytest tests/test_optimization.py -q`: 4개 테스트 통과
+- `.venv\Scripts\python.exe -m pytest -q`: 72개 테스트 통과
+- `.venv\Scripts\python.exe -m ruff check .`: 통과
+- `.venv\Scripts\python.exe -m ruff format --check .`: 통과
+- `.venv\Scripts\python.exe -m mypy`: 통과
+- small CP-SAT baseline(seed 20260707, solver seed 17, 60초 제한): 0.05초, `OPTIMAL`, objective `37.131943`, bound `37.131943`, gap `0.0`, replay return `32.43194328409742`, completed strips `39`, completed orders `9`
+- `.venv\Scripts\python.exe -m pytest tests/test_storage.py -q`: 5개 테스트 통과
+- `.venv\Scripts\python.exe -m pytest -q`: 77개 테스트 통과
+- `.venv\Scripts\python.exe -m pytest tests/test_storage.py tests/test_training.py -q`: 11개 테스트 통과
+- `.venv\Scripts\python.exe -m pytest -q`: 80개 테스트 통과
+- `.venv\Scripts\python.exe -m pytest -q`: 83개 테스트 통과 (현재 Starlette `TestClient`의 외부 `httpx` deprecation warning 1건 제외)
+- `.venv\Scripts\python.exe -m pytest tests/test_backend.py -q`: 5개 테스트 통과 (동일 외부 warning 1건)
+- `.venv\Scripts\python.exe -m pytest -q`: 85개 테스트 통과 (동일 외부 warning 1건)
+- `.venv\Scripts\python.exe -m pytest tests/test_storage.py tests/test_backend.py -q`: 14개 테스트 통과 (동일 외부 warning 1건)
+- `.venv\Scripts\python.exe -m pytest -q`: 87개 테스트 통과 (동일 외부 warning 1건)
+- `.venv\Scripts\python.exe -m pytest tests/test_backend.py -q`: 9개 테스트 통과 (동일 외부 warning 1건)
+- `.venv\Scripts\python.exe -m pytest -q`: 90개 테스트 통과 (동일 외부 warning 1건)
+- `.venv\Scripts\python.exe -m pytest -q`: 92개 테스트 통과 (동일 외부 warning 1건)
+- `.venv\Scripts\python.exe -m pytest -q`: 96개 테스트 통과 (동일 외부 warning 1건)
+- `.venv\Scripts\python.exe -m pytest -q`: 99개 테스트 통과 (동일 외부 warning 1건)
+- `.venv\Scripts\python.exe -m pytest -q`: 101개 테스트 통과 (동일 외부 warning 1건)
+- `.venv\Scripts\python.exe -m ruff check .`: 통과
+- `.venv\Scripts\python.exe -m ruff format --check .`: 통과
+- `.venv\Scripts\python.exe -m mypy`: 통과
 
 ## 알려진 문제와 미확정 사항
 
@@ -155,12 +237,46 @@
 - 10초 opportunity 양자화는 가상 시나리오용 가정이므로 실제 궤도 데이터 연결 시 재검토해야 한다.
 - 2,000개 strip을 평탄화하는 기본 MultiInputPolicy는 full 규모에서 계산량이 클 수 있어 small/full 확장 시 성능을 다시 측정해야 한다.
 - 단계 6 엄격 검증에서 tiny 시나리오는 통과했지만 개선 폭은 작고 완료 strip/order 수는 Random valid와 같았다. small/full 시나리오와 greedy 정책 비교에서 성능 의미를 다시 확인해야 한다.
+- CP-SAT baseline은 tiny/small 시나리오에서 replay 검증을 통과했다. 실제 대규모 입력에서 time limit이 발생할 때의 성능·bound 해석은 후속 분석이 필요하다.
+- 실제 worker process의 PID/lock, heartbeat 및 checkpoint 선택 재시작 API는 단계 9·12에서 구현해야 한다. 현재는 worker 부재가 확인된 supervisor 시작 시 복구를 호출하는 계약만 확정했다.
+- 주문, strip, opportunity 전용 조회와 기준 정책 실행, 학습 worker 제어 및 결과/replay API는 단계 9에서 완료했다.
+- 단계 10은 현재 Backend 조회 API만 사용하는 읽기 전용 시나리오 탐색 화면으로 진행한다. scenario/order/environment/reward 수정은 version 또는 복제본, 검증, 파생 artifact 재생성 및 run snapshot 정책을 함께 확정한 뒤 추가한다.
+- React Router 기반 app shell, Vite `/api` proxy, 공통 API 오류 처리와 `GET /api/scenarios` 읽기 전용 목록 화면을 구현했다.
+- 시나리오 목록은 로딩·빈 목록·오류·재시도를 구분하며, `/scenarios/:scenarioId` 상세 경로는 다음 탭 구현 단위를 위한 placeholder로 준비했다.
+- `/scenarios/:scenarioId`에 개요, 주문, Strip, 촬영 기회, 검증 읽기 전용 탭을 구현했다.
+- 상단 설정·개수는 Scenario 상세 API를 사용하고, 하위 목록은 탭별 전용 API·pagination으로 분리했다. 주문→Strip→촬영 기회의 선택 필터와 URL query 상태를 연결했다.
+- Frontend production build: `npm run build` 통과
+- `GET /api/training-runs`, `GET /api/evaluation-runs` 최신 run metadata 목록 API와 scenario/status 필터·pagination을 구현했다.
+- 대시보드에서 최근 시나리오, 최근 학습 실행, 최근 평가 실행을 읽기 전용으로 표시했다. 목록은 artifact를 열지 않는다.
+- `/results` 완료 평가 목록과 `/results/{run_id}` 결과 지표 상세 화면을 구현했다.
+- 결과 상세는 검증된 summary의 return, reward breakdown, captures, 완료 order/strip, 평균 off-nadir를 표시하고 구조화된 결과 오류를 안내한다.
+- Leaflet 기반 Scenario 지도 탭을 추가했다. 주문 윤곽을 기본으로 표시하고, 선택한 pass의 ground track·footprint·접근 strip 또는 선택 strip만 상세 렌더링한다.
+- 결과 상세에 replay schedule 기반 24시간 타임라인과 지도 결과를 추가했다. URL query `captureId`로 선택 capture를 보존하며, 타임라인↔지도 strip 선택을 양방향 연동한다.
+- 결과 지도에서 strip은 schedule 포함 여부로 완료/미촬영을 표시하고, 주문은 완료 strip 비율로 완료/부분 완료/미촬영을 집계한다. 우선순위는 테두리, 실행 상태는 채움 색으로 분리했다.
+- `GET /api/results/{run_id}/episodes/{episode_id}/steps/{step_index}`을 추가해 선택 capture의 replay step을 직접 조회한다. 결과 상세 패널은 자세 전후 상태, reward breakdown, 누적 return 및 후보 mask 근거를 표시한다.
+- `/training` 학습 설정 화면과 `/training/{run_id}` polling 상세 화면을 구현했다. 저장된 시나리오와 PPO 설정으로 run을 시작하고, active run의 상태·metrics·checkpoint/final artifact 요약을 3초마다 복구한다.
+- `GET /api/training-runs/{run_id}/detail`은 검증된 config snapshot, checkpoint 파일명, final model/final evaluation 존재 여부를 반환한다. UI는 cooperative stop 요청과 `stop_requested` 중간 상태를 표시한다.
+- `/results/{run_id}/replay`에 저장된 evaluation episode 재생 화면을 구현했다. step 직접 조회, 처음/이전/재생/정지/다음/마지막, 속도 조절, state/action 후보/action mask/reward breakdown 및 촬영 action 지도 동기화를 제공한다.
+- `PolicyComparisonRun` metadata와 immutable comparison artifact 저장·조회 API를 추가했다. 현재는 동일 scenario·seed의 완료 EvaluationRun을 명시적으로 선택해 baseline 결과를 비교한다.
+- `/comparisons` 정책 비교 화면을 추가했다. scenario·seed별 완료 EvaluationRun을 선택해 비교 artifact를 만들고, 지표 표의 각 행에서 원본 결과와 replay로 이동한다. artifact에 `evaluation_run_id`를 보존해 같은 정책의 반복 실행도 정확히 연결한다.
+- PPO 최종 평가를 원본 training run에 연결된 EvaluationRun으로 저장하고, CP-SAT도 PPO와 단일 실행 슬롯을 공유하는 worker 기반 EvaluationRun으로 저장하도록 확장 중이다.
+- `/training` 화면에 CP-SAT seed·시간 제한 입력과 실행 버튼을 추가했다. 진행 중인 PPO 또는 CP-SAT run이 있으면 두 실행을 모두 막고 상태를 표시한다.
+- `.venv\Scripts\python.exe -m pytest -q`: 105개 테스트 통과 (외부 Starlette/httpx deprecation warning 1건)
+- Ruff lint·format, Mypy 및 Frontend `npm run build` 통과
+- 2026-07-22 Frontend `npm run build` 통과
+- `.venv\Scripts\python.exe -m pytest tests/test_backend.py -q`: 18개 테스트 통과 (외부 Starlette/httpx deprecation warning 1건)
+- 2026-07-22 Frontend `npm run build` 통과 (step 상세 패널 포함)
+- `.venv\Scripts\python.exe -m pytest tests/test_backend.py -q`: 19개 테스트 통과 (외부 Starlette/httpx deprecation warning 1건)
+- 2026-07-22 Frontend `npm run build` 통과 (학습 제어 화면 포함)
+- 2026-07-23 Frontend `npm run build` 통과 (episode 재생 화면 포함)
+- `.venv\Scripts\python.exe -m pytest tests/test_backend.py -q`: 20개 테스트 통과 (외부 Starlette/httpx deprecation warning 1건)
+- 2026-07-23 Frontend `npm run build` 통과 (정책 비교 화면 및 run 연결 포함)
+- `.venv\Scripts\python.exe -m mypy`: 통과
+- `npm install` 감사는 high 취약점 2건을 보고했다. 자동 수정은 `--force`와 major 변경을 요구하므로 적용하지 않았고, Frontend 의존성 갱신 시 별도 검토한다.
 
 ## 다음 세션의 첫 작업
 
-[구현 계획의 단계 7A](docs/implementation-plan.md#단계-7a-cp-sat-최적화-기준해)로 이동한다.
-
-시작점은 OR-Tools CP-SAT 의존성을 검토하고, tiny 시나리오의 opportunity 선택 0/1 변수, 같은 strip 중복 금지, 시간/자세 전환 충돌 제약 및 simulator replay 재검증 테스트를 설계하는 것이다. 단계 7A가 완료된 뒤 단계 8 저장 계층으로 이동한다.
+[구현 계획의 단계 13](docs/implementation-plan.md)의 PPO·CP-SAT EvaluationRun 색인에 대한 API 통합 테스트와 Frontend 비교 흐름 검증을 완료한다.
 
 ## 관련 문서
 

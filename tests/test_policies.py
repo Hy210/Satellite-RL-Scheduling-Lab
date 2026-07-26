@@ -300,14 +300,17 @@ def test_policy_comparison_artifact_summarizes_multiple_replays(tmp_path: Path) 
 
     assert loaded == comparison
     assert {entry.policy_name for entry in loaded.entries} == {policy.name for policy in POLICIES}
-    assert loaded.best_policy_name == max(
-        loaded.entries,
-        key=lambda entry: (
-            entry.total_return,
-            entry.completed_orders,
-            entry.completed_strips,
-            entry.captures,
-            entry.policy_name,
-        ),
-    ).policy_name
+    assert (
+        loaded.best_policy_name
+        == max(
+            loaded.entries,
+            key=lambda entry: (
+                entry.total_return,
+                entry.completed_orders,
+                entry.completed_strips,
+                entry.captures,
+                entry.policy_name,
+            ),
+        ).policy_name
+    )
     assert all(entry.replay_path is not None for entry in loaded.entries)

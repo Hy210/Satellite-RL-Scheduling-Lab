@@ -165,10 +165,12 @@ def policy_comparison_entry(
     angle_bonus: float,
     missed_penalty: float,
     replay_path: Path | None = None,
+    evaluation_run_id: str | None = None,
 ) -> PolicyComparisonEntry:
-    """정책 평가 결과와 replay를 비교 artifact의 한 행으로 요약한다."""
+    """정책 평가 결과와 원본 실행을 비교 artifact의 한 행으로 요약한다."""
 
     return PolicyComparisonEntry(
+        evaluation_run_id=evaluation_run_id,
         policy_name=replay.policy_name,
         scenario_id=replay.scenario_id,
         seed=replay.seed,

@@ -509,6 +509,24 @@ class EvaluationRun(StrictModel):
     error_message: str | None = None
 
 
+class EvaluationSummary(StrictModel):
+    """정책 종류와 무관하게 결과 화면이 읽는 평가 요약 artifact다."""
+
+    policy_name: str
+    scenario_id: str
+    seed: int
+    steps: int
+    captures: int
+    total_return: float
+    priority_score: float
+    angle_bonus: float
+    missed_penalty: float
+    completed_strips: int
+    completed_orders: int
+    average_off_nadir_deg: float
+    replay_path: str
+
+
 class ReplayState(StrictModel):
     """재생 로그의 한 시점에서 화면과 분석에 필요한 상태 요약이다."""
 
@@ -586,8 +604,9 @@ class EpisodeReplay(StrictModel):
 
 
 class PolicyComparisonEntry(StrictModel):
-    """동일 시나리오에서 정책 하나의 성능과 replay 위치를 비교하기 위한 요약이다."""
+    """동일 시나리오에서 정책 하나의 성능과 원본 실행을 비교하기 위한 요약이다."""
 
+    evaluation_run_id: str | None = None
     policy_name: str
     scenario_id: str
     seed: int
@@ -616,6 +635,31 @@ class PolicyComparison(StrictModel):
         if self.best_policy_name not in {entry.policy_name for entry in self.entries}:
             raise ValueError("best_policy_name must reference an entry")
         return self
+
+
+class PolicyComparisonRun(StrictModel):
+    """동일 scenario·seed 결과 집합을 고정해 재현 가능한 비교 artifact로 연결한다."""
+
+    comparison_id: str = Field(min_length=1)
+    scenario_id: str = Field(min_length=1)
+    seed: int
+    evaluation_run_ids: list[str] = Field(min_length=1)
+    artifact_path: str = Field(min_length=1)
+
+
+class OptimizationBaselineResult(StrictModel):
+    """최적화 solver가 만든 기준해와 simulator replay 검증 결과를 묶은 artifact다."""
+
+    solver_name: str = Field(min_length=1)
+    scenario_id: str = Field(min_length=1)
+    seed: int
+    status: str = Field(min_length=1)
+    objective_value: float | None = None
+    best_objective_bound: float | None = None
+    optimality_gap: float | None = Field(default=None, ge=0.0)
+    time_limit_sec: float = Field(gt=0.0)
+    selected_opportunity_ids: list[str] = Field(default_factory=list)
+    replay: EpisodeReplay
 
 
 class MaskablePPOTrainingConfig(StrictModel):

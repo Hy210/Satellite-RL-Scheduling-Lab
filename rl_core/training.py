@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -16,6 +16,8 @@ from stable_baselines3.common.callbacks import BaseCallback
 from rl_core.gym_env import SatelliteSchedulingEnv
 from rl_core.models import (
     EpisodeReplay,
+    EvaluationRun,
+    EvaluationSummary,
     MaskablePPOTrainingConfig,
     ReplayCapture,
     ReplayStep,
@@ -31,6 +33,7 @@ from rl_core.replay import (
     save_episode_replay,
 )
 from rl_core.simulator import RewardBreakdown
+from rl_core.storage import StorageRepository
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +63,7 @@ class TrainedPolicyEvaluation:
     missed_penalty: float
     completed_strips: int
     completed_orders: int
+    average_off_nadir_deg: float
     decisions: tuple[TrainedPolicyDecision, ...]
     replay: EpisodeReplay
 
@@ -77,6 +81,10 @@ class TrainingArtifacts:
     final_evaluation: TrainedPolicyEvaluation
 
 
+class TrainingStoppedError(RuntimeError):
+    """사용자 중지 요청으로 checkpoint를 보존한 채 학습이 끝났음을 알린다."""
+
+
 class FixedScenarioEvalCallback(BaseCallback):
     """학습 중 같은 평가 시나리오를 주기적으로 실행하고 metric을 JSONL로 남긴다."""
 
@@ -90,6 +98,7 @@ class FixedScenarioEvalCallback(BaseCallback):
         checkpoint_dir: Path,
         metrics_path: Path,
         deterministic: bool,
+        should_stop: Callable[[], bool] | None = None,
     ) -> None:
         super().__init__(verbose=0)
         self.scenario = scenario
@@ -99,11 +108,17 @@ class FixedScenarioEvalCallback(BaseCallback):
         self.checkpoint_dir = checkpoint_dir
         self.metrics_path = metrics_path
         self.deterministic = deterministic
+        self.should_stop = should_stop
         self.checkpoints: list[Path] = []
+        self.stop_requested = False
 
     def _on_step(self) -> bool:
         # num_timesteps는 실제 학습이 소비한 transition 수다. 평가와 checkpoint를
         # 이 값에 맞춰 남기면 학습 곡선과 모델 파일을 같은 축에서 비교할 수 있다.
+        if self.should_stop is not None and self.should_stop():
+            self.stop_requested = True
+            self._save_checkpoint()
+            return False
         if self.num_timesteps % self.eval_freq == 0:
             evaluation = evaluate_trained_policy(
                 cast(MaskablePPO, self.model),
@@ -119,10 +134,17 @@ class FixedScenarioEvalCallback(BaseCallback):
                 },
             )
         if self.num_timesteps % self.checkpoint_freq == 0:
-            path = self.checkpoint_dir / f"checkpoint-{self.num_timesteps}.zip"
-            self.model.save(path)
-            self.checkpoints.append(path)
+            self._save_checkpoint()
         return True
+
+    def _save_checkpoint(self) -> None:
+        """중지 시점에도 마지막 model 상태를 보존하도록 checkpoint를 한 번만 저장한다."""
+
+        path = self.checkpoint_dir / f"checkpoint-{self.num_timesteps}.zip"
+        if path in self.checkpoints:
+            return
+        self.model.save(path)
+        self.checkpoints.append(path)
 
 
 def train_maskable_ppo(
@@ -130,6 +152,8 @@ def train_maskable_ppo(
     config: MaskablePPOTrainingConfig,
     *,
     run_id: str,
+    storage: StorageRepository | None = None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> TrainingArtifacts:
     """단일 시나리오에서 Maskable PPO를 학습하고 모델·metric artifact를 저장한다."""
 
@@ -165,6 +189,7 @@ def train_maskable_ppo(
         checkpoint_dir=checkpoint_dir,
         metrics_path=metrics_path,
         deterministic=config.deterministic_eval,
+        should_stop=should_stop,
     )
 
     run = TrainingRun(
@@ -176,38 +201,93 @@ def train_maskable_ppo(
         status=RunStatus.RUNNING,
         artifact_directory=str(run_directory),
     )
+    if storage is not None:
+        storage.save_scenario(scenario)
+        storage.save_training_run(run)
     _write_json(run_directory / "config.json", config.model_dump(mode="json"))
     _write_json(run_directory / "run.json", run.model_dump(mode="json"))
 
-    model.learn(total_timesteps=config.total_timesteps, callback=callback)
+    try:
+        model.learn(total_timesteps=config.total_timesteps, callback=callback)
 
-    final_model_path = model_dir / "final-model.zip"
-    model.save(final_model_path)
-    final_evaluation = evaluate_trained_policy(
-        model,
-        scenario,
-        seed=config.evaluation_seed,
-        deterministic=config.deterministic_eval,
-    )
-    _write_json(
-        metrics_dir / "final-evaluation.json",
-        _evaluation_payload(final_evaluation, include_decisions=True),
-    )
-    replay_path = metrics_dir / "replay.json"
-    save_episode_replay(replay_path, final_evaluation.replay)
+        if callback.stop_requested:
+            stop_requested_run = run.model_copy(update={"status": RunStatus.STOP_REQUESTED})
+            stopped_run = stop_requested_run.model_copy(update={"status": RunStatus.STOPPED})
+            if storage is not None:
+                # API가 먼저 상태를 바꾸지 못한 직접 실행 경로도 허용 전이를 지킨다.
+                storage.save_training_run(stop_requested_run)
+                storage.save_training_run(stopped_run)
+            _write_json(run_directory / "run.json", stopped_run.model_dump(mode="json"))
+            raise TrainingStoppedError(f"training stopped at timestep {model.num_timesteps}")
 
-    completed_run = run.model_copy(update={"status": RunStatus.COMPLETED})
-    _write_json(run_directory / "run.json", completed_run.model_dump(mode="json"))
+        final_model_path = model_dir / "final-model.zip"
+        model.save(final_model_path)
+        final_evaluation = evaluate_trained_policy(
+            model,
+            scenario,
+            seed=config.evaluation_seed,
+            deterministic=config.deterministic_eval,
+        )
+        _write_json(
+            metrics_dir / "final-evaluation.json",
+            _evaluation_payload(final_evaluation, include_decisions=True),
+        )
+        replay_path = metrics_dir / "replay.json"
+        save_episode_replay(replay_path, final_evaluation.replay)
 
-    return TrainingArtifacts(
-        run=completed_run,
-        run_directory=run_directory,
-        final_model_path=final_model_path,
-        metrics_path=metrics_path,
-        replay_path=replay_path,
-        checkpoints=tuple(callback.checkpoints),
-        final_evaluation=final_evaluation,
-    )
+        if storage is not None:
+            evaluation_run = EvaluationRun(
+                run_id=f"evaluation-ppo-{run_id}",
+                scenario_id=scenario.scenario_id,
+                policy_name=final_evaluation.policy_name,
+                seed=final_evaluation.seed,
+                status=RunStatus.RUNNING,
+                source_training_run_id=run_id,
+            )
+            storage.save_evaluation_run(evaluation_run)
+            summary = EvaluationSummary(
+                policy_name=final_evaluation.policy_name,
+                scenario_id=scenario.scenario_id,
+                seed=final_evaluation.seed,
+                steps=final_evaluation.steps,
+                captures=final_evaluation.captures,
+                total_return=final_evaluation.total_return,
+                priority_score=final_evaluation.priority_score,
+                angle_bonus=final_evaluation.angle_bonus,
+                missed_penalty=final_evaluation.missed_penalty,
+                completed_strips=final_evaluation.completed_strips,
+                completed_orders=final_evaluation.completed_orders,
+                average_off_nadir_deg=final_evaluation.average_off_nadir_deg,
+                replay_path=(
+                    Path("evaluations") / evaluation_run.run_id / "replay.json"
+                ).as_posix(),
+            )
+            storage.save_completed_evaluation(evaluation_run, summary, final_evaluation.replay)
+
+        completed_run = run.model_copy(update={"status": RunStatus.COMPLETED})
+        if storage is not None:
+            storage.save_training_run(completed_run)
+        _write_json(run_directory / "run.json", completed_run.model_dump(mode="json"))
+
+        return TrainingArtifacts(
+            run=completed_run,
+            run_directory=run_directory,
+            final_model_path=final_model_path,
+            metrics_path=metrics_path,
+            replay_path=replay_path,
+            checkpoints=tuple(callback.checkpoints),
+            final_evaluation=final_evaluation,
+        )
+    except TrainingStoppedError:
+        raise
+    except Exception as error:
+        failed_run = run.model_copy(
+            update={"status": RunStatus.FAILED, "error_message": str(error)}
+        )
+        if storage is not None:
+            storage.save_training_run(failed_run)
+        _write_json(run_directory / "run.json", failed_run.model_dump(mode="json"))
+        raise
 
 
 def load_maskable_ppo_model(path: Path, scenario: Scenario) -> MaskablePPO:
@@ -306,6 +386,13 @@ def evaluate_trained_policy(
         steps=replay_steps,
         schedule=schedule,
     )
+    opportunity_by_id = {item.opportunity_id: item for item in scenario.opportunities}
+    average_off_nadir_deg = (
+        sum(opportunity_by_id[item.opportunity_id].off_nadir_deg for item in schedule)
+        / len(schedule)
+        if schedule
+        else 0.0
+    )
     return TrainedPolicyEvaluation(
         policy_name="maskable_ppo",
         scenario_id=scenario.scenario_id,
@@ -318,6 +405,7 @@ def evaluate_trained_policy(
         missed_penalty=missed_penalty,
         completed_strips=int(info["completed_strip_count"]),
         completed_orders=int(info["completed_order_count"]),
+        average_off_nadir_deg=average_off_nadir_deg,
         decisions=tuple(decisions),
         replay=replay,
     )
@@ -326,8 +414,7 @@ def evaluate_trained_policy(
 def _append_jsonl(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as file:
-        file.write(json.dumps(payload, ensure_ascii=False, sort_keys=True))
-        file.write("\n")
+        file.write(f"{json.dumps(payload, ensure_ascii=False, sort_keys=True)}\n")
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -347,6 +434,8 @@ def _evaluation_payload(
     payload["replay"] = evaluation.replay.model_dump(mode="json")
     if not include_decisions:
         payload.pop("decisions")
+        # 학습 곡선은 요약 지표만 필요하므로 큰 episode replay를 매 행에 중복하지 않는다.
+        payload.pop("replay")
     else:
         payload["decisions"] = list(_decision_payloads(evaluation.decisions))
     return payload
