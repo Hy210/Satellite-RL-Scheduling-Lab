@@ -6,9 +6,9 @@
 - 작업 디렉터리: `D:\HY\01. Developer\Project\NSICPS_RL_Scheduling`
 - 프로젝트 상태: 구현 계획 단계 0~9 완료, 단계 2A, 7A 및 13 완료
 - 현재 구현 단계: 단계 14 통합 검증과 문서 정리 (검증 항목 10/10 완료, 문서 0/7)
-- 진행 중 작업: 없음 (2026-07-26 변경분 lint·pytest·frontend build 검증 완료, 커밋 대기)
+- 진행 중 작업: 없음 (2026-07-26 변경분 + 2026-07-27 order 겹침 엔지니어링 변경분 lint·pytest·mypy 검증 완료, 커밋 대기)
 - Blocker: 없음
-- Git 상태: 2026-07-25 CP-SAT baseline, 저장 계층, Backend, Frontend 변경을 `7d62fc7`로, 2026-07-26 CP-SAT worker 오류 코드 정리·통합 테스트·`.gitignore` 정리를 `567bac7`로, 단계 14 1차 배치를 `6dfadec`로, 2차 배치를 `895f3c4`로, 3차 배치(성능·메모리 벤치마크)를 `2571c5e`로, 4차 배치(full 규모 RL·모든 기준 정책 비교)를 `b625337`로 커밋·push 완료. 2026-07-26 변경(결과·재생 지도 attitude-target 시각화, 주문 지도 geometry Frontend 타입 버그 수정, `stage14_full_scale_direction_check.py` 규모 일반화, 오프라인 학습 산출물 등록 도구 `tools/import_offline_training_run.py` 추가)은 lint/테스트/frontend build 검증과 커밋이 남아 있다.
+- Git 상태: 2026-07-25 CP-SAT baseline, 저장 계층, Backend, Frontend 변경을 `7d62fc7`로, 2026-07-26 CP-SAT worker 오류 코드 정리·통합 테스트·`.gitignore` 정리를 `567bac7`로, 단계 14 1차 배치를 `6dfadec`로, 2차 배치를 `895f3c4`로, 3차 배치(성능·메모리 벤치마크)를 `2571c5e`로, 4차 배치(full 규모 RL·모든 기준 정책 비교)를 `b625337`로, 2026-07-26 변경(attitude-target 시각화, geometry 타입 버그 수정, stage14 도구 일반화, `tools/import_offline_training_run.py`)을 `711ca56`로 커밋·push 완료. 2026-07-27 변경(생성기 order 겹침 엔지니어링, `test_backend.py`의 부동소수점 등식 비교를 `pytest.approx`로 수정, 관련 문서 갱신)은 lint/테스트/mypy 검증만 완료했고 커밋이 남아 있다.
 - Git 원격: `https://github.com/Hy210/Satellite-RL-Scheduling-Lab.git`
 
 ## 현재 목표
@@ -331,10 +331,17 @@
 - `.venv\Scripts\python.exe -m ruff check .` / `ruff format --check .`: 통과
 - `.venv\Scripts\python.exe -m mypy`: 통과
 - `npm run build`(frontend): 통과
+- 2026-07-27 full 규모 PPO 검증 방향을 검토하던 중 order 간 공간적 겹침이 실측상 거의 없음을 발견해(seed `20260707` 기준 tiny/small/full 모두 order 쌍의 0~0.53%만 겹침, 포함관계 0건), `rl_core/generator.py`의 order 배치 루프에 겹침 엔지니어링을 추가했다. order 약 30%(`OVERLAP_ORDER_FRACTION`)를 인접 index 쌍으로 묶어 `partial`/`full`/`containment` 세 종류를 순환 배정하고, 겹치는 쌍은 같은 anchor footprint(같은 pass)·겹치는 request 기간을 갖게 해 공간적 겹침이 실제 시간적 경쟁으로 이어지게 했다. 나머지 다수는 기존과 동일한 독립 랜덤 배치로 남겼다. `Order`/`Strip` 스키마 변경은 없다(겹침 쌍은 인접 order index 규칙으로만 구분). 상세와 구현 전/후 실측 수치는 `docs/project-knowledge.md` 6.13절.
+- 이 과정에서 `tests/test_backend.py::test_baseline_evaluation_persists_run_summary_and_replay`가 `total_return == priority_score + angle_bonus + missed_penalty`를 엄격한 `==`로 비교하고 있어 시나리오 데이터가 바뀌자 부동소수점 결합 법칙 오차로 실패하는 것을 발견했다 — 이미 `test_policies.py`/`test_training.py`/`test_optimization.py`는 전부 이 비교에 `pytest.approx`를 쓰고 있어, 프로젝트 관례에 맞춰 이 테스트도 `pytest.approx`로 수정했다(다른 검증 로직 변경 없음).
+- `tests/test_generator.py`에 `test_generator_creates_mixed_overlapping_and_separated_orders`(tiny/small/full 파라미터화)를 추가해, 겹침 존재·포함관계 존재·분리 쌍이 과반·겹치는 쌍의 request 기간도 실제로 겹침을 회귀 테스트로 고정했다.
+- `.venv\Scripts\python.exe -m pytest -q`: 135개 테스트 통과 (동일 외부 warning 1건)
+- `.venv\Scripts\python.exe -m ruff check .` / `ruff format --check .`: 통과
+- `.venv\Scripts\python.exe -m mypy`: 통과
+- 이번 배치는 `rl_core/generator.py`, `tests/`, 문서만 변경했고 Frontend 파일은 건드리지 않아 `npm run build` 재확인은 생략했다.
 
 ## 다음 세션의 첫 작업
 
-2026-07-26 변경분(attitude-target 시각화, Frontend geometry 타입 버그 수정, stage14 도구 일반화, `tools/import_offline_training_run.py`)은 검증을 마쳤으니 커밋·push한다. 이어서 [구현 계획의 단계 14](docs/implementation-plan.md) 통합 검증 10/10에 이어 남은 문서 7개 항목(설치 및 개발 환경, 로컬 실행 방법, 테스트 방법, 시나리오 데이터 형식, API 계약, 학습 및 평가 실행 방법, 알려진 제한사항)을 정리해 단계 14와 프로젝트 전체를 완료한다. 루트 `README.md`가 현재 설치·검증 명령만 있고 로컬 실행 방법(uvicorn/Vite 구동 등)이 비어 있다는 점부터 확인한다.
+2026-07-27 변경분(order 겹침 엔지니어링, `test_backend.py` 부동소수점 비교 수정, 관련 문서 갱신)은 검증을 마쳤으니 커밋·push한다. 이어서 [구현 계획의 단계 14](docs/implementation-plan.md) 통합 검증 10/10에 이어 남은 문서 7개 항목(설치 및 개발 환경, 로컬 실행 방법, 테스트 방법, 시나리오 데이터 형식, API 계약, 학습 및 평가 실행 방법, 알려진 제한사항)을 정리해 단계 14와 프로젝트 전체를 완료한다. 루트 `README.md`가 현재 설치·검증 명령만 있고 로컬 실행 방법(uvicorn/Vite 구동 등)이 비어 있다는 점부터 확인한다. 또한 이전에 검토한 "PPO seed 수를 늘려 full 규모 안정성을 재확인"하는 작업(`PPO_LEARNING_SEEDS`를 2개→6~8개로)이 이번 겹침 엔지니어링으로 시나리오 데이터가 달라졌으므로 재실행 시 새 시나리오 기준으로 다시 관찰해야 한다.
 
 ## 관련 문서
 

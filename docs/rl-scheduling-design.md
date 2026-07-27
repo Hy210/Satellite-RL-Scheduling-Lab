@@ -137,6 +137,10 @@ seed 기반 가상 생성기에서는 경쟁 가능한 촬영 후보가 생기�
 
 이전 생성기는 pass 시간 구간과 무작위 접근 구간으로 opportunity를 만들었기 때문에, strip과 궤도 footprint의 공간적 관계를 시각적으로 증명하지 못했다. 현재 가상 생성기는 pass별 ground track과 회전 footprint polygon을 만들고, pass 진행 방향에 맞춘 strip polygon과의 교차를 access window로 병합한 뒤 opportunity를 파생해 공간적 근거를 추적한다.
 
+order마다 완전히 독립적인 anchor footprint를 뽑는 초기 방식은 실측 결과 order 간 공간적 겹침이 거의 발생하지 않았다(seed `20260707` 기준 tiny 0%, small 0.53%, full 0.02% order 쌍 bbox 겹침, 포함관계는 세 규모 모두 0건) — order 크기(strip 0.45°×0.12° 수준)에 비해 전 세계 분포 범위가 훨씬 넓어 독립 균등 랜덤으로는 통계적으로 겹치기 어렵기 때문이다. 이래서는 "겹치는 두 촬영 중 무엇을 먼저 찍어야 하는가" 같은 공간적 충돌 상황을 정책이 학습할 기회가 사실상 없다 — 위 문단의 시간 축 "의미 있는 선택" 원칙을 공간 축으로도 적용해야 한다.
+
+이를 위해 생성기는 order 중 일부(대략 `OVERLAP_ORDER_FRACTION`, 기본 30%)를 인접 index 쌍으로 묶어 의도적으로 겹치게 배치한다. 겹침 종류는 `partial`(부분 겹침), `full`(거의 완전 겹침), `containment`(작은 order가 큰 order 안에 포함)를 순환 배정해 다양하게 만들고, 나머지 order(다수)는 기존과 동일한 완전 독립 랜덤 배치로 남긴다. 겹치는 쌍은 같은 anchor footprint(같은 pass)를 공유하고 request 기간도 서로 겹치도록 계산해, 공간적 겹침이 실제로 "둘 중 하나만 촬영 가능한" 시간적 경쟁으로 이어지게 한다. 이 배치 방식은 `Order`/`Strip`/`Rectangle`/`Polygon` 데이터 계약을 바꾸지 않으며, 어떤 order가 의도적 겹침 쌍인지는 별도 필드가 아니라 인접한 order index 규칙으로만 구분한다.
+
 ## 5. 위성 자세와 촬영 제약
 
 ### 5.1 초기 자세와 허용 범위

@@ -287,9 +287,11 @@ def test_baseline_evaluation_persists_run_summary_and_replay(tmp_path: Path) -> 
     replay_path = Path(payload["summary"]["replay_path"])
     assert run.status.value == "completed"
     assert run.policy_name == "priority_greedy"
-    assert (
-        payload["summary"]["total_return"]
-        == payload["summary"]["priority_score"]
+    # 다른 곳(test_policies.py, test_training.py 등)과 동일하게 pytest.approx를 쓴다 —
+    # total_return과 세 breakdown 합은 서로 다른 순서로 누적되어 부동소수점 결합 법칙
+    # 오차가 생길 수 있으므로 엄격한 == 비교는 적절하지 않다.
+    assert payload["summary"]["total_return"] == pytest.approx(
+        payload["summary"]["priority_score"]
         + payload["summary"]["angle_bonus"]
         + payload["summary"]["missed_penalty"]
     )

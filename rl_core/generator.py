@@ -5,6 +5,7 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass
 from math import ceil, hypot, sqrt
+from typing import Literal
 
 from rl_core.models import (
     AccessWindow,
@@ -32,6 +33,11 @@ FOOTPRINT_HALF_CROSS_DEG = 2.2
 STRIP_ALONG_DEG = 0.45
 STRIP_CROSS_DEG = 0.12
 ATTITUDE_DEG_PER_GROUND_DEG = 8.0
+
+OverlapKind = Literal["partial", "full", "containment"]
+_OVERLAP_KIND_CYCLE: tuple[OverlapKind, ...] = ("partial", "full", "containment")
+OVERLAP_ORDER_FRACTION = 0.3
+CONTAINED_STRIP_SCALE = 0.5
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +69,65 @@ SCALES: dict[str, ScenarioScale] = {
 }
 
 
+@dataclass(frozen=True, slots=True)
+class _BasePlacement:
+    """겹침 쌍의 base order 배치 정보 — partner order를 그 위에 상대 배치할 때 쓴다."""
+
+    anchor_footprint: FootprintSample
+    along: tuple[float, float]
+    cross: tuple[float, float]
+    strip_count: int
+    cross_offset: float
+    along_offset: float
+    center_lat: float
+    center_lon: float
+    request_start_sec: float
+    request_end_sec: float
+
+
+def _plan_overlap_pairs(
+    rng: random.Random, order_count: int, max_strip_count: int
+) -> tuple[dict[int, tuple[int, OverlapKind]], dict[int, int]]:
+    """order 일부를 인접 index 쌍으로 묶어 의도적 공간 겹침을 계획한다.
+
+    나머지 order는 기존과 동일한 완전 독립 랜덤 배치로 남겨, 겹치는 구간과
+    안 겹치는 구간이 한 시나리오 안에 공존하게 한다. `partial`/`full`/`containment`
+    세 종류를 순환 배정해 겹침 유형도 다양하게 만든다. `containment`는 강제 확보
+    (base가 container 역할)를 위해 base index의 강제 strip_count도 함께 반환한다.
+    """
+
+    partner_kind_by_index: dict[int, tuple[int, OverlapKind]] = {}
+    forced_strip_count_by_index: dict[int, int] = {}
+    if order_count < 2:
+        return partner_kind_by_index, forced_strip_count_by_index
+
+    target_pair_count = max(1, round(order_count * OVERLAP_ORDER_FRACTION / 2.0))
+    target_pair_count = min(target_pair_count, order_count // 2)
+
+    candidate_bases = list(range(order_count - 1))
+    rng.shuffle(candidate_bases)
+    used_indices: set[int] = set()
+    pairs: list[tuple[int, int]] = []
+    for base_index in candidate_bases:
+        if len(pairs) >= target_pair_count:
+            break
+        partner_index = base_index + 1
+        if base_index in used_indices or partner_index in used_indices:
+            continue
+        pairs.append((base_index, partner_index))
+        used_indices.add(base_index)
+        used_indices.add(partner_index)
+    pairs.sort()
+
+    for pair_position, (base_index, partner_index) in enumerate(pairs):
+        kind = _OVERLAP_KIND_CYCLE[pair_position % len(_OVERLAP_KIND_CYCLE)]
+        partner_kind_by_index[partner_index] = (base_index, kind)
+        if kind == "containment":
+            forced_strip_count_by_index[base_index] = max_strip_count
+
+    return partner_kind_by_index, forced_strip_count_by_index
+
+
 def generate_scenario(seed: int, size: str = "tiny") -> Scenario:
     """전 세계에 분포한 재현 가능한 가상 주문과 촬영 기회를 생성한다."""
 
@@ -80,34 +145,117 @@ def generate_scenario(seed: int, size: str = "tiny") -> Scenario:
     )
     orders: list[Order] = []
     strips: list[Strip] = []
+    placement_by_index: dict[int, _BasePlacement] = {}
+    partner_kind_by_index, forced_strip_count_by_index = _plan_overlap_pairs(
+        rng, scale.order_count, scale.max_strips_per_order
+    )
 
     for order_index in range(scale.order_count):
-        strip_count = rng.randint(1, scale.max_strips_per_order)
         order_id = f"order-{order_index:03d}"
-        anchor_footprint = rng.choice(footprint_samples)
-        anchor_pass = next(item for item in passes if item.pass_id == anchor_footprint.pass_id)
-        along, cross = _track_axes(anchor_pass.sequence)
-        strip_polygons = _place_strip_polygons(
-            rng=rng,
-            footprint=anchor_footprint,
-            strip_count=strip_count,
-            along=along,
-            cross=cross,
-        )
-        request_start = max(
-            0.0,
-            anchor_footprint.time_sec - rng.uniform(1_000.0, environment.duration_sec * 0.15),
-        )
-        request_end = min(
-            environment.duration_sec,
-            anchor_footprint.time_sec
-            + rng.uniform(
-                environment.duration_sec * 0.35,
-                environment.duration_sec * 0.85,
-            ),
-        )
-        if request_end <= request_start + environment.imaging_duration_sec:
-            request_end = min(environment.duration_sec, request_start + 3_600.0)
+        partner_info = partner_kind_by_index.get(order_index)
+
+        if partner_info is not None:
+            base_index, kind = partner_info
+            base_placement = placement_by_index[base_index]
+            anchor_footprint = base_placement.anchor_footprint
+            along, cross = base_placement.along, base_placement.cross
+
+            if kind == "containment":
+                strip_count = 1
+                strip_polygons = [
+                    _place_contained_strip_polygon(
+                        center_lat=base_placement.center_lat,
+                        center_lon=base_placement.center_lon,
+                        along=along,
+                        cross=cross,
+                    )
+                ]
+                cross_offset_used = base_placement.cross_offset
+                along_offset_used = base_placement.along_offset
+                center_lat, center_lon = base_placement.center_lat, base_placement.center_lon
+            else:
+                strip_count = (
+                    base_placement.strip_count
+                    if kind == "full"
+                    else rng.randint(1, scale.max_strips_per_order)
+                )
+                if kind == "full":
+                    forced_cross_offset = base_placement.cross_offset
+                else:
+                    base_total_cross = STRIP_CROSS_DEG * base_placement.strip_count
+                    partner_total_cross = STRIP_CROSS_DEG * strip_count
+                    partial_shift = (base_total_cross + partner_total_cross) / 4.0
+                    direction = rng.choice((-1.0, 1.0))
+                    forced_cross_offset = base_placement.cross_offset + direction * partial_shift
+                (
+                    strip_polygons,
+                    cross_offset_used,
+                    along_offset_used,
+                    center_lat,
+                    center_lon,
+                ) = _place_strip_polygons(
+                    rng=rng,
+                    footprint=anchor_footprint,
+                    strip_count=strip_count,
+                    along=along,
+                    cross=cross,
+                    forced_cross_offset=forced_cross_offset,
+                    forced_along_offset=base_placement.along_offset,
+                )
+
+            overlap_anchor = rng.uniform(
+                base_placement.request_start_sec,
+                max(
+                    base_placement.request_start_sec,
+                    base_placement.request_end_sec - environment.imaging_duration_sec,
+                ),
+            )
+            request_start = max(0.0, overlap_anchor - rng.uniform(0.0, 1_000.0))
+            request_end = min(
+                environment.duration_sec,
+                max(
+                    base_placement.request_end_sec,
+                    overlap_anchor + rng.uniform(1_000.0, environment.duration_sec * 0.35),
+                ),
+            )
+            if request_end <= request_start + environment.imaging_duration_sec:
+                request_end = min(environment.duration_sec, request_start + 3_600.0)
+        else:
+            if order_index in forced_strip_count_by_index:
+                strip_count = forced_strip_count_by_index[order_index]
+            else:
+                strip_count = rng.randint(1, scale.max_strips_per_order)
+            anchor_footprint = rng.choice(footprint_samples)
+            anchor_pass = next(item for item in passes if item.pass_id == anchor_footprint.pass_id)
+            along, cross = _track_axes(anchor_pass.sequence)
+            (
+                strip_polygons,
+                cross_offset_used,
+                along_offset_used,
+                center_lat,
+                center_lon,
+            ) = _place_strip_polygons(
+                rng=rng,
+                footprint=anchor_footprint,
+                strip_count=strip_count,
+                along=along,
+                cross=cross,
+            )
+            request_start = max(
+                0.0,
+                anchor_footprint.time_sec - rng.uniform(1_000.0, environment.duration_sec * 0.15),
+            )
+            request_end = min(
+                environment.duration_sec,
+                anchor_footprint.time_sec
+                + rng.uniform(
+                    environment.duration_sec * 0.35,
+                    environment.duration_sec * 0.85,
+                ),
+            )
+            if request_end <= request_start + environment.imaging_duration_sec:
+                request_end = min(environment.duration_sec, request_start + 3_600.0)
+
         priority = rng.choices(
             [Priority.RED, Priority.BLUE, Priority.BACKGROUND],
             weights=[0.2, 0.35, 0.45],
@@ -136,6 +284,19 @@ def generate_scenario(seed: int, size: str = "tiny") -> Scenario:
                 geometry=strip_polygons[strip_index],
             )
             strips.append(strip)
+
+        placement_by_index[order_index] = _BasePlacement(
+            anchor_footprint=anchor_footprint,
+            along=along,
+            cross=cross,
+            strip_count=strip_count,
+            cross_offset=cross_offset_used,
+            along_offset=along_offset_used,
+            center_lat=center_lat,
+            center_lon=center_lon,
+            request_start_sec=request_start,
+            request_end_sec=request_end,
+        )
 
     access_windows, opportunities = _generate_access_windows_and_opportunities(
         rng=rng,
@@ -263,12 +424,30 @@ def _place_strip_polygons(
     strip_count: int,
     along: tuple[float, float],
     cross: tuple[float, float],
-) -> list[Polygon]:
+    forced_cross_offset: float | None = None,
+    forced_along_offset: float | None = None,
+) -> tuple[list[Polygon], float, float, float, float]:
+    """order의 strip들을 anchor footprint 주변에 배치한다.
+
+    `forced_cross_offset`/`forced_along_offset`을 주면 내부 난수 jitter 대신 그 값을
+    그대로 쓴다 — 겹침 쌍의 partner order를 base와 같은(또는 통제된 만큼 벗어난)
+    위치에 배치할 때 사용한다. 반환값은 (polygons, 실제 사용한 cross_offset,
+    실제 사용한 along_offset, 공유 중심 위도, 공유 중심 경도)다.
+    """
+
     total_cross = STRIP_CROSS_DEG * strip_count
     cross_margin = max(0.0, FOOTPRINT_HALF_CROSS_DEG - total_cross / 2.0)
     along_margin = max(0.0, FOOTPRINT_HALF_ALONG_DEG - STRIP_ALONG_DEG / 2.0)
-    base_cross_offset = rng.uniform(-cross_margin * 0.45, cross_margin * 0.45)
-    base_along_offset = rng.uniform(-along_margin * 0.55, along_margin * 0.55)
+    base_cross_offset = (
+        forced_cross_offset
+        if forced_cross_offset is not None
+        else rng.uniform(-cross_margin * 0.45, cross_margin * 0.45)
+    )
+    base_along_offset = (
+        forced_along_offset
+        if forced_along_offset is not None
+        else rng.uniform(-along_margin * 0.55, along_margin * 0.55)
+    )
     center_lat = footprint.center_latitude_deg + along[0] * base_along_offset
     center_lon = footprint.center_longitude_deg + along[1] * base_along_offset
     polygons: list[Polygon] = []
@@ -287,7 +466,31 @@ def _place_strip_polygons(
                 half_cross=STRIP_CROSS_DEG / 2.0,
             )
         )
-    return polygons
+    return polygons, base_cross_offset, base_along_offset, center_lat, center_lon
+
+
+def _place_contained_strip_polygon(
+    *,
+    center_lat: float,
+    center_lon: float,
+    along: tuple[float, float],
+    cross: tuple[float, float],
+) -> Polygon:
+    """containment 쌍의 partner(작은 order)를 base의 중심점에 축소 크기로 배치한다.
+
+    가로세로를 `CONTAINED_STRIP_SCALE`만큼 줄여, base가 강제로 확보한 cross 폭
+    (`_plan_overlap_pairs`가 container에 `max_strip_count`를 강제) 안에 확실히
+    들어가게 한다.
+    """
+
+    return _oriented_rectangle(
+        center_lat=center_lat,
+        center_lon=center_lon,
+        along=along,
+        cross=cross,
+        half_along=STRIP_ALONG_DEG * CONTAINED_STRIP_SCALE / 2.0,
+        half_cross=STRIP_CROSS_DEG * CONTAINED_STRIP_SCALE / 2.0,
+    )
 
 
 def _oriented_rectangle(

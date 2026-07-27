@@ -10,7 +10,7 @@ from rl_core.generator import (
     generate_scenario,
     resolve_attitude_look_point,
 )
-from rl_core.models import OpportunityKind, Polygon
+from rl_core.models import OpportunityKind, Polygon, Rectangle
 
 
 @pytest.mark.parametrize("size", ["tiny", "small", "full"])
@@ -21,6 +21,87 @@ def test_generator_creates_expected_scale(size: str) -> None:
     assert len(scenario.passes) == SCALES[size].pass_count
     assert 0 < len(scenario.strips) <= scenario.environment.max_strips
     assert scenario.opportunities
+
+
+@pytest.mark.parametrize("size", ["tiny", "small", "full"])
+def test_generator_creates_mixed_overlapping_and_separated_orders(size: str) -> None:
+    """일부 order 쌍은 의도적으로 겹치고(부분/완전/포함), 대다수는 여전히 분리돼야 한다.
+
+    order 배치를 완전 독립 랜덤으로 두면 겹침이 통계적으로 거의 발생하지 않는다는 것을
+    실측으로 확인했다(tiny 0%, small 0.53%, full 0.02% bbox 겹침, 포함관계는 세 규모
+    모두 0건). 겹침 엔지니어링이 실제로 다양한 관계를 만들면서도 대다수 order는 여전히
+    분리된 상태(겹침이 지배적이지 않음)로 남기는지 검증한다.
+    """
+
+    scenario = generate_scenario(seed=20260707, size=size)
+    orders = scenario.orders
+    strips_by_order: dict[str, list] = {}
+    for strip in scenario.strips:
+        strips_by_order.setdefault(strip.order_id, []).append(strip)
+
+    total_pairs = 0
+    separated_pairs = 0
+    bbox_overlap_pairs = 0
+    strip_level_overlap_pairs = 0
+    containment_pairs = 0
+    temporal_overlap_confirmed = False
+
+    for i in range(len(orders)):
+        for j in range(i + 1, len(orders)):
+            order_a, order_b = orders[i], orders[j]
+            total_pairs += 1
+            if not _rect_overlap(order_a.geometry, order_b.geometry):
+                separated_pairs += 1
+                continue
+            bbox_overlap_pairs += 1
+
+            found_strip_overlap = any(
+                _polygons_intersect(strip_a.geometry, strip_b.geometry)
+                for strip_a in strips_by_order.get(order_a.order_id, [])
+                for strip_b in strips_by_order.get(order_b.order_id, [])
+            )
+            if not found_strip_overlap:
+                continue
+            strip_level_overlap_pairs += 1
+
+            if _rect_contains(order_a.geometry, order_b.geometry) or _rect_contains(
+                order_b.geometry, order_a.geometry
+            ):
+                containment_pairs += 1
+
+            if (
+                order_a.request_start_sec < order_b.request_end_sec
+                and order_b.request_start_sec < order_a.request_end_sec
+            ):
+                temporal_overlap_confirmed = True
+
+    assert bbox_overlap_pairs > 0, f"{size}: no overlapping order pair found"
+    assert strip_level_overlap_pairs > 0, f"{size}: no order pair with actual strip overlap"
+    assert containment_pairs > 0, f"{size}: no containment order pair found"
+    assert separated_pairs > total_pairs // 2, (
+        f"{size}: overlap engineering should stay a minority, not dominate the scenario"
+    )
+    assert temporal_overlap_confirmed, (
+        f"{size}: at least one spatially overlapping pair should also share request windows"
+    )
+
+
+def _rect_overlap(left: Rectangle, right: Rectangle) -> bool:
+    return (
+        left.min_lat <= right.max_lat
+        and right.min_lat <= left.max_lat
+        and left.min_lon <= right.max_lon
+        and right.min_lon <= left.max_lon
+    )
+
+
+def _rect_contains(outer: Rectangle, inner: Rectangle) -> bool:
+    return (
+        outer.min_lat <= inner.min_lat
+        and outer.max_lat >= inner.max_lat
+        and outer.min_lon <= inner.min_lon
+        and outer.max_lon >= inner.max_lon
+    )
 
 
 @pytest.mark.parametrize("size", ["tiny", "small", "full"])
