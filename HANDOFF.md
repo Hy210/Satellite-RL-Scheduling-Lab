@@ -2,13 +2,13 @@
 
 ## 현재 상태
 
-- 마지막 갱신일: 2026-07-27
+- 마지막 갱신일: 2026-07-28
 - 작업 디렉터리: `D:\HY\01. Developer\Project\NSICPS_RL_Scheduling`
 - 프로젝트 상태: 구현 계획 단계 0~9 완료, 단계 2A, 7A 및 13 완료
 - 현재 구현 단계: 단계 14 통합 검증과 문서 정리 (검증 항목 10/10 완료, 문서 0/7)
-- 진행 중 작업: 없음 (2026-07-26 변경분 + 2026-07-27 order 겹침 엔지니어링 변경분 lint·pytest·mypy 검증 완료, 커밋 대기)
+- 진행 중 작업: 없음 (2026-07-28 full 규모 8-seed PPO 재검증 + `--resume-from` 도구 변경분 lint·pytest 검증 완료, 커밋 대기)
 - Blocker: 없음
-- Git 상태: 2026-07-25 CP-SAT baseline, 저장 계층, Backend, Frontend 변경을 `7d62fc7`로, 2026-07-26 CP-SAT worker 오류 코드 정리·통합 테스트·`.gitignore` 정리를 `567bac7`로, 단계 14 1차 배치를 `6dfadec`로, 2차 배치를 `895f3c4`로, 3차 배치(성능·메모리 벤치마크)를 `2571c5e`로, 4차 배치(full 규모 RL·모든 기준 정책 비교)를 `b625337`로, 2026-07-26 변경(attitude-target 시각화, geometry 타입 버그 수정, stage14 도구 일반화, `tools/import_offline_training_run.py`)을 `711ca56`로 커밋·push 완료. 2026-07-27 변경(생성기 order 겹침 엔지니어링, `test_backend.py`의 부동소수점 등식 비교를 `pytest.approx`로 수정, 관련 문서 갱신)은 lint/테스트/mypy 검증만 완료했고 커밋이 남아 있다.
+- Git 상태: 2026-07-25 CP-SAT baseline, 저장 계층, Backend, Frontend 변경을 `7d62fc7`로, 2026-07-26 CP-SAT worker 오류 코드 정리·통합 테스트·`.gitignore` 정리를 `567bac7`로, 단계 14 1차 배치를 `6dfadec`로, 2차 배치를 `895f3c4`로, 3차 배치(성능·메모리 벤치마크)를 `2571c5e`로, 4차 배치(full 규모 RL·모든 기준 정책 비교)를 `b625337`로, 2026-07-26 변경(attitude-target 시각화, geometry 타입 버그 수정, stage14 도구 일반화, `tools/import_offline_training_run.py`)을 `711ca56`로, 2026-07-27 생성기 order 겹침 엔지니어링·`test_backend.py` 부동소수점 비교 수정을 `b0061d5`로 커밋·push 완료. 2026-07-28 변경(`--ppo-learning-seeds`/`--resume-from` CLI 추가, full 규모 8-seed 재검증 결과 문서화)은 검증만 완료했고 커밋이 남아 있다.
 - Git 원격: `https://github.com/Hy210/Satellite-RL-Scheduling-Lab.git`
 
 ## 현재 목표
@@ -338,10 +338,16 @@
 - `.venv\Scripts\python.exe -m ruff check .` / `ruff format --check .`: 통과
 - `.venv\Scripts\python.exe -m mypy`: 통과
 - 이번 배치는 `rl_core/generator.py`, `tests/`, 문서만 변경했고 Frontend 파일은 건드리지 않아 `npm run build` 재확인은 생략했다.
+- 2026-07-28 겹침 엔지니어링 이후 시나리오가 바뀌어 6.12절의 2-seed 비교가 더 이상 유효하지 않아, `tools/stage14_full_scale_direction_check.py`에 `--ppo-learning-seeds`(learning seed 목록 지정)와 `--resume-from`(이미 완료된 seed 재사용, 중단된 실행 이어하기) CLI 인자를 추가했다.
+- full 규모 8-seed(`11,23,37,41,53,67,79,89`, 각 30,000 timesteps) 재검증 실행 도중 컴퓨터가 다시 예기치 않게 재부팅되어(2026-07-26에 이어 두 번째) 중단됐다 — `--resume-from`으로 이미 완료된 5개 seed를 재사용하고 나머지 3개(67은 체크포인트만 있어 처음부터, 79/89는 신규)만 재학습해 완주했다.
+- 실측 결과: Maskable PPO median(64.23)이 CP-SAT 최적해(65.50)에는 못 미쳤지만, **세 휴리스틱(62.27~62.33) 전부를 8개 seed 중 7개가 안정적으로 넘어섰다** — 6.12절(2-seed, 겹침 엔지니어링 이전 시나리오)에서 PPO가 모든 휴리스틱에 못 미쳤던 것과 대비된다. 다만 seed 37은 4,000 timesteps에서 이미 64.29(다른 seed와 동등)에 도달했다가 30,000 timesteps까지 계속 학습하며 62.28로 후퇴해, 6.12절에서 관찰한 "학습 후반 불안정성"이 이번에도 재현됨을 확인했다. 상세는 `docs/project-knowledge.md` 6.14절.
+- `.venv\Scripts\python.exe -m pytest -q`: 135개 테스트 통과 (동일 외부 warning 1건, 도구 스크립트 변경은 테스트 대상 아님)
+- `.venv\Scripts\python.exe -m ruff check .` / `ruff format --check .`: 통과
+- 이번 배치는 `tools/stage14_full_scale_direction_check.py`와 문서만 변경했다(`tools/`는 mypy 대상 아님, Frontend 파일 없음 — `npm run build` 재확인 생략).
 
 ## 다음 세션의 첫 작업
 
-2026-07-27 변경분(order 겹침 엔지니어링, `test_backend.py` 부동소수점 비교 수정, 관련 문서 갱신)은 검증을 마쳤으니 커밋·push한다. 이어서 [구현 계획의 단계 14](docs/implementation-plan.md) 통합 검증 10/10에 이어 남은 문서 7개 항목(설치 및 개발 환경, 로컬 실행 방법, 테스트 방법, 시나리오 데이터 형식, API 계약, 학습 및 평가 실행 방법, 알려진 제한사항)을 정리해 단계 14와 프로젝트 전체를 완료한다. 루트 `README.md`가 현재 설치·검증 명령만 있고 로컬 실행 방법(uvicorn/Vite 구동 등)이 비어 있다는 점부터 확인한다. 또한 이전에 검토한 "PPO seed 수를 늘려 full 규모 안정성을 재확인"하는 작업(`PPO_LEARNING_SEEDS`를 2개→6~8개로)이 이번 겹침 엔지니어링으로 시나리오 데이터가 달라졌으므로 재실행 시 새 시나리오 기준으로 다시 관찰해야 한다.
+2026-07-28 변경분(`--ppo-learning-seeds`/`--resume-from` CLI 추가, full 규모 8-seed 재검증)은 검증을 마쳤으니 커밋·push한다. 이어서 [구현 계획의 단계 14](docs/implementation-plan.md) 통합 검증 10/10에 이어 남은 문서 7개 항목(설치 및 개발 환경, 로컬 실행 방법, 테스트 방법, 시나리오 데이터 형식, API 계약, 학습 및 평가 실행 방법, 알려진 제한사항)을 정리해 단계 14와 프로젝트 전체를 완료한다. 루트 `README.md`가 현재 설치·검증 명령만 있고 로컬 실행 방법(uvicorn/Vite 구동 등)이 비어 있다는 점부터 확인한다. 또한 6.14절에서 재확인한 "학습 후반 불안정성"(seed 37이 peak 대비 하락)은 seed를 늘려도 해결되지 않으므로, 다음으로 검토할 만한 개선은 learning rate 선형 감쇠 또는 best-checkpoint 자동 저장/사용이다.
 
 ## 관련 문서
 

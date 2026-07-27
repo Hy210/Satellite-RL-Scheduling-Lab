@@ -3,11 +3,20 @@
 원래 단계 14 마지막 통합 검증(full 규모)을 위해 작성했으나, `--scenario-size`로
 규모를 바꿔 재사용할 수 있게 일반화했다 — 예: full 규모 학습이 수렴하는지 보기 전에
 같은 설계로 small 규모에서 훨씬 긴 학습이 깨끗하게 수렴하는지 먼저 저비용으로 확인하는 용도.
+`--ppo-learning-seeds`로 learning seed 개수·값도 조절할 수 있다 — seed 2개로는 학습
+안정성(seed에 따라 수렴 양상이 크게 다른지)을 판단하기에 통계적으로 부족하다고 판단해
+기본값을 8개로 늘렸다.
 
 사전에 정한 합격선은 없다 — CP-SAT이 OPTIMAL을 못 찾거나 PPO가 기준선을 못 넘어도
 "실패"가 아니라 "관찰된 결과"로 기록하는 것이 목적이다. full 규모로 실행할 때는 처리량
 벤치마크(`tools/stage14_scale_benchmark.py`)에서 측정한 것과 같은 하이퍼파라미터를 그대로
 써야 그 처리량(steps/sec) 기반 시간 예산 추정이 유효하다.
+
+full 규모 다중 seed 실행은 몇 시간이 걸릴 수 있고, 원인 불명 재부팅으로 두 번(2026-07-26,
+2026-07-28) 중단된 전례가 있다. `--resume-from`에 중단된 실행의 benchmark_root(예:
+`data/runs/stage14-full-direction-check-<timestamp>`)를 주면, 이미 `metrics/final-evaluation.json`이
+저장된 seed는 재학습 없이 그대로 재사용하고 아직 안 끝난/시작 안 한 seed만 이어서 학습한다.
+baseline 4종과 CP-SAT은 결정론적이고 재계산 비용이 낮아 재사용 없이 항상 새로 계산한다.
 """
 
 from __future__ import annotations
@@ -34,7 +43,7 @@ RANDOM_VALID_EVAL_SEEDS = (101, 102, 103)
 DETERMINISTIC_BASELINE_EVAL_SEED = 101
 CP_SAT_SEED = 17
 CP_SAT_DEFAULT_TIME_LIMIT_SEC = 900.0
-PPO_LEARNING_SEEDS = (11, 23)
+PPO_DEFAULT_LEARNING_SEEDS = (11, 23, 37, 41, 53, 67, 79, 89)
 PPO_EVALUATION_SEED = 17
 PPO_DEFAULT_TOTAL_TIMESTEPS = 30_000
 N_STEPS = 256
@@ -57,6 +66,8 @@ def main() -> None:
         cp_sat_time_limit_sec=args.cp_sat_time_limit_sec,
         ppo_total_timesteps=args.ppo_total_timesteps,
         checkpoint_interval=args.checkpoint_interval,
+        ppo_learning_seeds=args.ppo_learning_seeds,
+        resume_from=args.resume_from,
     )
     summary_path = benchmark_root / "summary.json"
     summary_path.write_text(
@@ -73,6 +84,8 @@ def run_check(
     cp_sat_time_limit_sec: float,
     ppo_total_timesteps: int,
     checkpoint_interval: int,
+    ppo_learning_seeds: tuple[int, ...] = PPO_DEFAULT_LEARNING_SEEDS,
+    resume_from: Path | None = None,
 ) -> dict[str, Any]:
     """baseline 4종 → CP-SAT → Maskable PPO 순서로 지정 규모 시나리오를 평가·학습한다."""
 
@@ -124,27 +137,41 @@ def run_check(
     }
 
     ppo_results: list[dict[str, Any]] = []
-    for learning_seed in PPO_LEARNING_SEEDS:
-        config = MaskablePPOTrainingConfig(
-            total_timesteps=ppo_total_timesteps,
-            learning_seed=learning_seed,
-            evaluation_seed=PPO_EVALUATION_SEED,
-            n_steps=N_STEPS,
-            batch_size=BATCH_SIZE,
-            n_epochs=N_EPOCHS,
-            checkpoint_interval=checkpoint_interval,
-            evaluation_interval=EVALUATION_INTERVAL,
-            artifact_root=benchmark_root / "ppo-runs",
-        )
-        artifacts = train_maskable_ppo(
-            scenario, config, run_id=f"full-direction-check-seed-{learning_seed}"
-        )
-        payload = _common_payload(asdict(artifacts.final_evaluation))
+    for learning_seed in ppo_learning_seeds:
+        run_id = f"full-direction-check-seed-{learning_seed}"
+        reused_run_dir = _find_resumable_run(resume_from, run_id)
+        if reused_run_dir is not None:
+            final_evaluation = json.loads(
+                (reused_run_dir / "metrics" / "final-evaluation.json").read_text(encoding="utf-8")
+            )
+            payload = _common_payload(final_evaluation)
+            payload["learning_curve"] = [
+                {
+                    "timesteps": row["timesteps"],
+                    "total_return": row["evaluation"]["total_return"],
+                }
+                for row in _read_metric_rows(reused_run_dir / "metrics" / "training-metrics.jsonl")
+            ]
+            payload["reused_from"] = str(reused_run_dir)
+        else:
+            config = MaskablePPOTrainingConfig(
+                total_timesteps=ppo_total_timesteps,
+                learning_seed=learning_seed,
+                evaluation_seed=PPO_EVALUATION_SEED,
+                n_steps=N_STEPS,
+                batch_size=BATCH_SIZE,
+                n_epochs=N_EPOCHS,
+                checkpoint_interval=checkpoint_interval,
+                evaluation_interval=EVALUATION_INTERVAL,
+                artifact_root=benchmark_root / "ppo-runs",
+            )
+            artifacts = train_maskable_ppo(scenario, config, run_id=run_id)
+            payload = _common_payload(asdict(artifacts.final_evaluation))
+            payload["learning_curve"] = [
+                {"timesteps": row["timesteps"], "total_return": row["evaluation"]["total_return"]}
+                for row in _read_metric_rows(artifacts.metrics_path)
+            ]
         payload["learning_seed"] = learning_seed
-        payload["learning_curve"] = [
-            {"timesteps": row["timesteps"], "total_return": row["evaluation"]["total_return"]}
-            for row in _read_metric_rows(artifacts.metrics_path)
-        ]
         ppo_results.append(payload)
 
     ppo_median_return = median(item["total_return"] for item in ppo_results)
@@ -176,12 +203,28 @@ def run_check(
         "baseline": baseline,
         "cp_sat": cp_sat_payload,
         "maskable_ppo": {
-            "learning_seeds": list(PPO_LEARNING_SEEDS),
+            "learning_seeds": list(ppo_learning_seeds),
             "runs": ppo_results,
             "median_total_return": ppo_median_return,
         },
         "comparison": comparison,
     }
+
+
+def _find_resumable_run(resume_from: Path | None, run_id: str) -> Path | None:
+    """`resume_from` 아래에 해당 run_id의 완료된 학습 산출물이 있으면 그 디렉터리를 반환한다.
+
+    `final-evaluation.json`이 있어야 완료로 인정한다 — checkpoint만 있고 중단된
+    run(예: 재부팅 도중 20,000/30,000 timesteps에서 끊긴 경우)은 재사용하지 않고
+    처음부터 다시 학습한다.
+    """
+
+    if resume_from is None:
+        return None
+    run_dir = resume_from / "ppo-runs" / run_id
+    if (run_dir / "metrics" / "final-evaluation.json").is_file():
+        return run_dir
+    return None
 
 
 def _common_payload(raw: dict[str, Any]) -> dict[str, Any]:
@@ -241,7 +284,29 @@ def _parse_args() -> argparse.Namespace:
         default=CHECKPOINT_INTERVAL,
         help="Timesteps between saved checkpoints (increase for long runs to limit disk I/O).",
     )
+    parser.add_argument(
+        "--ppo-learning-seeds",
+        type=_parse_seed_list,
+        default=PPO_DEFAULT_LEARNING_SEEDS,
+        help=(
+            "Comma-separated PPO learning seeds, e.g. '11,23,37' "
+            f"(default: {','.join(str(s) for s in PPO_DEFAULT_LEARNING_SEEDS)})."
+        ),
+    )
+    parser.add_argument(
+        "--resume-from",
+        type=Path,
+        default=None,
+        help=(
+            "Prior benchmark_root (e.g. data/runs/stage14-full-direction-check-<timestamp>) "
+            "whose already-completed PPO seed runs should be reused instead of retrained."
+        ),
+    )
     return parser.parse_args()
+
+
+def _parse_seed_list(raw: str) -> tuple[int, ...]:
+    return tuple(int(item.strip()) for item in raw.split(",") if item.strip())
 
 
 def _timestamp() -> str:
