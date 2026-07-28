@@ -497,6 +497,18 @@ CP-SAT 결과는 정책 이름 `cp_sat_baseline`의 평가 결과처럼 저장�
 
 단계 6 검증은 tiny 시나리오에서 저장한 모델을 다시 불러와 동일한 방식으로 평가할 수 있는지 확인하고, 별도의 반복 seed benchmark로 Random valid보다 일관되게 우수한지 비교한다. 2026-07-08 `synthetic-tiny-20260707` 엄격 검증에서는 Maskable PPO가 Random valid median return을 근소하게 넘었고 skip 반복이나 특정 action slot 고착 기준도 통과했다. 다만 tiny 문제에서는 완료 strip/order 수가 같았으므로 small/full 시나리오에서 성능 의미를 다시 검토한다.
 
+### 13.1 Domain randomization 학습
+
+단일 고정 시나리오(seed `20260707`)로만 학습·평가하던 방식은 "이 시나리오 하나를 잘 푸는가"만 확인할 뿐 일반화 여부를 확인하지 못한다는 한계가 실측으로 드러났다 — 8-seed로 학습한 모델을 재학습 없이 학습에 쓰이지 않은 시나리오 5개에 평가하자 세 휴리스틱 전부를 이긴 건 5개 중 1개뿐이었다(`docs/project-knowledge.md` 6.16절).
+
+이를 보완하기 위해 `rl_core/gym_env.py`의 `SatelliteSchedulingEnv`에 `scenario_pool` 옵션을 추가했다. `scenario_pool`이 주어지면 매 episode `reset()`마다 pool에서 시나리오를 다시 뽑아 `simulator`를 재구성한다 — 단일 `scenario`를 주는 기존 방식은 그대로 유지되며 하위 호환이 깨지지 않는다. 이게 안전한 이유는 `generate_scenario()`가 항상 기본 `EnvironmentConfig`(`max_strips=2000`, `max_candidates=128`)를 쓰기 때문에 seed·size와 무관하게 모든 시나리오가 같은 observation/action space 크기를 공유하기 때문이다.
+
+학습 진입점은 `rl_core/training.py::train_maskable_ppo_with_scenario_pool()`로 별도 함수를 뒀다 — 기존 `train_maskable_ppo()`는 `TrainingRun`/`EvaluationRun`/`StorageRepository`처럼 시나리오 하나(`scenario_id`)를 전제로 한 저장 계층과 얽혀 있어, 여러 시나리오를 오가는 학습 개념을 억지로 끼워 맞추지 않고 독립된 경로로 뒀다(backend에 노출하지 않는 연구용 실행). 학습 중 진행 상황은 pool에 없는 별도의 `held_out_scenario`로 추적해, "일반화가 실제로 진행되는지"를 pool 암기와 구분해서 볼 수 있게 한다.
+
+시나리오마다 만점(총 reward의 실제 스케일)이 크게 다르다는 것도 실측으로 확인했다(휴리스틱 최저점이 같은 "full" 규모에서도 64~78로 편차). 관측은 이미 `[0,1]`/`[-1,1]`로 clip돼 있지만 reward는 정규화가 없는 raw 합산값이라, 여러 시나리오를 섞어 학습하면 value function이 시나리오마다 다른 reward 스케일에 적응해야 해서 불안정해질 수 있다. 그래서 학습 env를 `stable_baselines3.common.vec_env.VecNormalize(norm_obs=False, norm_reward=True)`로 감싸 reward만 러닝 평균/분산으로 정규화한다(새 의존성 없음 — `sb3-contrib`가 이미 끌어옴). 평가(`evaluate_trained_policy`)는 관측만 보고 reward를 보지 않으므로 이 정규화는 평가 코드에 영향을 주지 않는다.
+
+learning rate 감쇠 등 다른 학습 안정화는 "여러 시나리오 학습 자체가 되는지" 확인이 먼저라고 보고 이번 범위에서 제외했다. 학습 시나리오 자체에 대한 최고 성능은 단일 시나리오 학습보다 낮아질 수 있다는 trade-off가 있다.
+
 ## 14. 초기 범위에서 제외하는 기능
 
 - 다중 위성 공동 스케줄링

@@ -2,13 +2,13 @@
 
 ## 현재 상태
 
-- 마지막 갱신일: 2026-07-28
+- 마지막 갱신일: 2026-07-29
 - 작업 디렉터리: `D:\HY\01. Developer\Project\NSICPS_RL_Scheduling`
 - 프로젝트 상태: 구현 계획 단계 0~9 완료, 단계 2A, 7A 및 13 완료
 - 현재 구현 단계: 단계 14 통합 검증과 문서 정리 (검증 항목 10/10 완료, 문서 0/7)
-- 진행 중 작업: 없음 (2026-07-28 full 규모 8-seed PPO 재검증 + `--resume-from` 도구 변경분 lint·pytest 검증 완료, 커밋 대기)
+- 진행 중 작업: 없음 (full 규모 domain randomization 500,000-timestep 학습 완료, held-out zero-shot 결과를 `docs/project-knowledge.md` 6.17절에 반영. 코드·테스트·문서 lint·pytest·mypy 검증 완료, 커밋 대기)
 - Blocker: 없음
-- Git 상태: 2026-07-25 CP-SAT baseline, 저장 계층, Backend, Frontend 변경을 `7d62fc7`로, 2026-07-26 CP-SAT worker 오류 코드 정리·통합 테스트·`.gitignore` 정리를 `567bac7`로, 단계 14 1차 배치를 `6dfadec`로, 2차 배치를 `895f3c4`로, 3차 배치(성능·메모리 벤치마크)를 `2571c5e`로, 4차 배치(full 규모 RL·모든 기준 정책 비교)를 `b625337`로, 2026-07-26 변경(attitude-target 시각화, geometry 타입 버그 수정, stage14 도구 일반화, `tools/import_offline_training_run.py`)을 `711ca56`로, 2026-07-27 생성기 order 겹침 엔지니어링·`test_backend.py` 부동소수점 비교 수정을 `b0061d5`로 커밋·push 완료. 2026-07-28 변경(`--ppo-learning-seeds`/`--resume-from` CLI 추가, full 규모 8-seed 재검증 결과 문서화)은 검증만 완료했고 커밋이 남아 있다.
+- Git 상태: 2026-07-25 CP-SAT baseline, 저장 계층, Backend, Frontend 변경을 `7d62fc7`로, 2026-07-26 CP-SAT worker 오류 코드 정리·통합 테스트·`.gitignore` 정리를 `567bac7`로, 단계 14 1차 배치를 `6dfadec`로, 2차 배치를 `895f3c4`로, 3차 배치(성능·메모리 벤치마크)를 `2571c5e`로, 4차 배치(full 규모 RL·모든 기준 정책 비교)를 `b625337`로, 2026-07-26 변경(attitude-target 시각화, geometry 타입 버그 수정, stage14 도구 일반화, `tools/import_offline_training_run.py`)을 `711ca56`로, 2026-07-27 생성기 order 겹침 엔지니어링·`test_backend.py` 부동소수점 비교 수정을 `b0061d5`로, 2026-07-28 `--ppo-learning-seeds`/`--resume-from` CLI 추가와 full 규모 8-seed 재검증을 `273e375`로 커밋·push 완료. 2026-07-28~29 변경(CP-SAT 목적함수 관찰, RL 학습 노트 보강, zero-shot 전이 확인 도구·결과, domain randomization 학습 구현과 full 규모 검증 결과)은 커밋이 남아 있다.
 - Git 원격: `https://github.com/Hy210/Satellite-RL-Scheduling-Lab.git`
 
 ## 현재 목표
@@ -344,10 +344,22 @@
 - `.venv\Scripts\python.exe -m pytest -q`: 135개 테스트 통과 (동일 외부 warning 1건, 도구 스크립트 변경은 테스트 대상 아님)
 - `.venv\Scripts\python.exe -m ruff check .` / `ruff format --check .`: 통과
 - 이번 배치는 `tools/stage14_full_scale_direction_check.py`와 문서만 변경했다(`tools/`는 mypy 대상 아님, Frontend 파일 없음 — `npm run build` 재확인 생략).
+- 2026-07-28 6.14절 결과를 두고 두 가지를 추가로 확인했다(코드 변경 없이 관찰만, 검증 재실행 불필요). (1) `rl_core/optimization.py`의 CP-SAT 목적함수가 `strip_base + angle_bonus`만 최대화하고 `missed_penalty`는 제외한다는 것을 재확인·정량화했다(solver `objective_value` 119.09 = replay `priority_score+angle_bonus`와 정확히 일치, `missed_penalty` -53.60은 목적함수 밖에서만 반영) — 즉 CP-SAT의 `OPTIMAL, gap 0.0`은 `total_return` 기준 진짜 최적이라는 보장이 아니다. 상세는 `docs/project-knowledge.md` 6.15절. (2) 8개 `learning_seed`가 전부 동일 시나리오(seed 20260707)를 학습한 것이었다는 점을 명확히 하고, "학습 seed 다양화"와 "시나리오(문제) 다양화를 통한 일반화"가 다른 문제임을 `docs/rl-study-notes.md`에 정리했다.
+- best-checkpoint 선택에 대해 "우연히 좋은 값을 고른 것 아니냐"는 지적이 있었고, 확인 결과 PPO 평가는 `deterministic_eval=True`(argmax)라 같은 체크포인트는 항상 같은 값을 내므로 잡음에 의한 cherry-picking은 아니다 — 다만 이는 "이 고정 시나리오를 잘 푸는 것"과 별개로 "다른 시나리오에 대한 일반화"에는 기여하지 않는다는 점도 함께 정리했다(`docs/rl-study-notes.md`).
+- `tools/stage14_zero_shot_transfer_check.py`를 신설해, 학습 seed 11 모델(가장 안정적으로 227 strip/23 order를 유지)을 재학습 없이 unseen 시나리오 5개(seed 1001~1005, full 규모)에 그대로 평가했다. 결과: random_valid는 5/5에서 이겼지만 세 휴리스틱 전부를 넘은 건 1/5뿐이었다 — 학습 시나리오에서 8-seed 중 7/8이 넘었던 것과 대비되며, "휴리스틱을 이기는 능력"의 상당 부분이 학습 시나리오에 대한 과적합이었음을 실측으로 확인했다. 상세는 `docs/project-knowledge.md` 6.16절.
+- `.venv\Scripts\python.exe -m ruff check .` / `ruff format --check .`: 통과 (신규 `tools/stage14_zero_shot_transfer_check.py` 포함, `tools/`는 mypy·pytest 대상 아님)
+- 2026-07-28 위 낮은 일반화 성능을 해결하기 위해 domain randomization 학습을 구현했다. `rl_core/gym_env.py::SatelliteSchedulingEnv`에 `scenario_pool` 옵션을 추가해(하위 호환 유지, `scenario`/`scenario_pool` 중 정확히 하나 필요) episode마다 pool에서 시나리오를 다시 뽑도록 했고, `rl_core/training.py`에 `train_maskable_ppo_with_scenario_pool()`을 신설했다(`storage`/`TrainingRun`/`EvaluationRun` 연동 없음 — 시나리오 하나를 전제로 한 그 계약을 억지로 맞추지 않고 별도 `ScenarioPoolTrainingArtifacts`를 반환). reward 스케일이 시나리오마다 다른 문제(6.16절)에는 `VecNormalize(norm_reward=True)`로 대응했다(관측은 이미 clip돼 있어 `norm_obs=False`, 평가 코드는 영향 없음). 두 학습 함수가 공유하는 "모델 저장 → 최종 평가 → artifact 기록" 꼬리는 `_save_final_artifacts()`로 뽑아 중복을 줄였다.
+- `tools/stage14_domain_randomization_check.py`를 신설해 학습→held-out 5개(6.16절과 동일 세트) zero-shot 비교를 자동화했다. tiny 파일럿(2,048 timesteps)으로 action masking이 `DummyVecEnv`+`VecNormalize` 조합에서도 정상 동작함을 확인했고, small 파일럿(102,400 timesteps)에서는 held-out 5/5가 세 휴리스틱을 이겼다(단일 시나리오 모델은 1/5) — 다만 마진이 매우 얇고(예: 36.723 vs 36.715) 한 시나리오는 random_valid에도 졌다.
+- full 규모 본실행(500,000 timesteps, pool 20개 seed 2001~2020) 완료: **held-out 5개 전부에서 domain randomization 모델의 raw return이 단일 시나리오 모델(6.16절)보다 높았다**(예: seed 1003 66.74→79.76, seed 1004 61.48→68.09). 세 휴리스틱을 전부 이긴 시나리오 수는 1/5 → 2/5로 늘었고, 나머지 3개도 근소한 차이(4~7점 개선에도 못 미침)로 아직 못 넘었다. held-out 학습 곡선(48개 지점)은 첫 1/4 평균 63.38에서 마지막 1/4 평균 65.11로 뚜렷하게 상승했고, 6.14절 seed 37 같은 "찾았다가 완전히 잃어버리는" 붕괴는 없었다. 결론: domain randomization이 일반화 문제를 완전히 해결하진 않았지만 방향성 있고 일관된 개선을 만들었다. 상세는 `docs/project-knowledge.md` 6.17절.
+- `tests/test_gym_env.py`에 `scenario_pool` 검증/회전 테스트 5개, `tests/test_training.py`에 `train_maskable_ppo_with_scenario_pool()` smoke 테스트 1개 추가.
+- `.venv\Scripts\python.exe -m pytest -q`: 141개 테스트 통과 (동일 외부 warning 1건)
+- `.venv\Scripts\python.exe -m ruff check .` / `ruff format --check .`: 통과 (신규 `tools/stage14_domain_randomization_check.py` 포함)
+- `.venv\Scripts\python.exe -m mypy`: 통과
+- 이번 배치는 `rl_core/`, `tests/`, `tools/`, 문서만 변경했고 Frontend 파일은 건드리지 않아 `npm run build` 재확인은 생략했다.
 
 ## 다음 세션의 첫 작업
 
-2026-07-28 변경분(`--ppo-learning-seeds`/`--resume-from` CLI 추가, full 규모 8-seed 재검증)은 검증을 마쳤으니 커밋·push한다. 이어서 [구현 계획의 단계 14](docs/implementation-plan.md) 통합 검증 10/10에 이어 남은 문서 7개 항목(설치 및 개발 환경, 로컬 실행 방법, 테스트 방법, 시나리오 데이터 형식, API 계약, 학습 및 평가 실행 방법, 알려진 제한사항)을 정리해 단계 14와 프로젝트 전체를 완료한다. 루트 `README.md`가 현재 설치·검증 명령만 있고 로컬 실행 방법(uvicorn/Vite 구동 등)이 비어 있다는 점부터 확인한다. 또한 6.14절에서 재확인한 "학습 후반 불안정성"(seed 37이 peak 대비 하락)은 seed를 늘려도 해결되지 않으므로, 다음으로 검토할 만한 개선은 learning rate 선형 감쇠 또는 best-checkpoint 자동 저장/사용이다.
+2026-07-28~29 변경분(domain randomization 학습 코드, 신규 도구 2개, 테스트, 문서, full 규모 검증 결과)은 검증을 마쳤으니 커밋·push한다. 이어서 [구현 계획의 단계 14](docs/implementation-plan.md) 통합 검증 10/10에 이어 남은 문서 7개 항목(설치 및 개발 환경, 로컬 실행 방법, 테스트 방법, 시나리오 데이터 형식, API 계약, 학습 및 평가 실행 방법, 알려진 제한사항)을 정리해 단계 14와 프로젝트 전체를 완료한다. 루트 `README.md`가 현재 설치·검증 명령만 있고 로컬 실행 방법(uvicorn/Vite 구동 등)이 비어 있다는 점부터 확인한다. PPO/도메인 랜덤화 쪽에서 검토 중인 다음 개선 방향(6.17절)은 (1) 근소하게 못 넘은 3개 시나리오를 위한 더 큰 timesteps/pool 재시도, (2) 이번에 제외한 learning rate 감쇠를 domain randomization 학습에도 적용, (3) pool·held-out 개수를 늘려 결과 재현성 확인이고, 별개로 CP-SAT 목적함수에 `missed_penalty` 항을 추가해 진짜 상한선을 다시 계산하는 것(6.15절)도 남아 있다 — 모두 사용자 확인 후 진행한다.
 
 ## 관련 문서
 

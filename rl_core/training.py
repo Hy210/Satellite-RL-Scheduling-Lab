@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -12,6 +12,7 @@ import numpy as np
 from sb3_contrib import MaskablePPO
 from sb3_contrib.common.maskable.utils import get_action_masks
 from stable_baselines3.common.callbacks import BaseCallback
+from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
 from rl_core.gym_env import SatelliteSchedulingEnv
 from rl_core.models import (
@@ -220,20 +221,13 @@ def train_maskable_ppo(
             _write_json(run_directory / "run.json", stopped_run.model_dump(mode="json"))
             raise TrainingStoppedError(f"training stopped at timestep {model.num_timesteps}")
 
-        final_model_path = model_dir / "final-model.zip"
-        model.save(final_model_path)
-        final_evaluation = evaluate_trained_policy(
+        final_model_path, final_evaluation, replay_path = _save_final_artifacts(
             model,
             scenario,
-            seed=config.evaluation_seed,
-            deterministic=config.deterministic_eval,
+            config,
+            model_dir=model_dir,
+            metrics_dir=metrics_dir,
         )
-        _write_json(
-            metrics_dir / "final-evaluation.json",
-            _evaluation_payload(final_evaluation, include_decisions=True),
-        )
-        replay_path = metrics_dir / "replay.json"
-        save_episode_replay(replay_path, final_evaluation.replay)
 
         if storage is not None:
             evaluation_run = EvaluationRun(
@@ -288,6 +282,139 @@ def train_maskable_ppo(
             storage.save_training_run(failed_run)
         _write_json(run_directory / "run.json", failed_run.model_dump(mode="json"))
         raise
+
+
+@dataclass(frozen=True, slots=True)
+class ScenarioPoolTrainingArtifacts:
+    """domain randomization 학습 run이 남긴 파일 경로와 held-out 평가 결과다.
+
+    `TrainingArtifacts`를 재사용하지 않는 이유: 그 계약은 `scenario_id` 하나로 학습
+    대상을 가리키는 `TrainingRun`을 전제하는데, 이 학습은 여러 시나리오를 번갈아
+    겪으므로 "하나의 scenario_id"가 존재하지 않는다. 억지로 끼워 맞추면 나중에 읽는
+    사람이 `scenario_id`를 "학습에 쓰인 시나리오"로 오해하기 쉬워, 이 실행 방식에
+    맞는 필드(`training_scenario_ids`/`held_out_scenario_id`)를 가진 별도 계약으로 둔다.
+    """
+
+    run_directory: Path
+    final_model_path: Path
+    metrics_path: Path
+    replay_path: Path
+    checkpoints: tuple[Path, ...]
+    final_evaluation: TrainedPolicyEvaluation
+    training_scenario_ids: tuple[str, ...]
+    held_out_scenario_id: str
+
+
+def train_maskable_ppo_with_scenario_pool(
+    training_scenarios: Sequence[Scenario],
+    held_out_scenario: Scenario,
+    config: MaskablePPOTrainingConfig,
+    *,
+    run_id: str,
+    should_stop: Callable[[], bool] | None = None,
+) -> ScenarioPoolTrainingArtifacts:
+    """여러 시나리오를 episode마다 바꿔가며 Maskable PPO를 학습한다(domain randomization).
+
+    단일 시나리오 학습(`train_maskable_ppo`)으로는 그 시나리오 하나에 대한 과적합만
+    확인할 수 있다는 게 실측으로 드러났다 — 학습 seed 8개를 늘려도 재학습 없이 unseen
+    시나리오에 평가하면 세 휴리스틱을 이긴 건 5개 중 1개뿐이었다(`docs/project-knowledge.md`
+    6.16절). 이 함수는 `training_scenarios`로 정책이 한 배치를 외우지 않고 일반적인
+    전략을 배우도록 강제하고, 학습 중 진행 상황은 pool에 없는 `held_out_scenario`로
+    추적해 "일반화가 실제로 진행되는지"를 관찰할 수 있게 한다.
+
+    `storage`/`TrainingRun`/`EvaluationRun` 연동은 하지 않는다 — 이 함수는 backend에
+    노출하지 않는 연구용 실행이고, 그 계약들은 시나리오 하나를 전제로 설계돼 있어
+    억지로 맞추기보다 범위 밖으로 둔다.
+
+    reward는 시나리오마다 스케일이 크게 다를 수 있다(같은 "full" 규모라도 order 배치에
+    따라 만점 자체가 달라짐을 실측으로 확인했다 — 6.16절 unseen 5개의 휴리스틱 최저점이
+    64~78로 편차가 컸다). 그래서 `VecNormalize(norm_reward=True)`로 reward만 러닝
+    평균/분산으로 정규화해 value function 학습을 안정화한다. 관측은 `rl_core/gym_env.py`가
+    이미 `[0,1]`/`[-1,1]`로 직접 clip해두므로 `norm_obs=False`로 둔다 — 평가
+    (`evaluate_trained_policy`)는 관측만 보고 reward는 보지 않으므로 이 정규화가
+    평가 결과에 영향을 주지 않는다.
+    """
+
+    if not training_scenarios:
+        raise ValueError("training_scenarios must not be empty")
+
+    run_directory = config.artifact_root / run_id
+    checkpoint_dir = run_directory / "checkpoints"
+    metrics_dir = run_directory / "metrics"
+    model_dir = run_directory / "model"
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    metrics_dir.mkdir(parents=True, exist_ok=True)
+    model_dir.mkdir(parents=True, exist_ok=True)
+
+    metrics_path = metrics_dir / "training-metrics.jsonl"
+    if metrics_path.exists():
+        metrics_path.unlink()
+
+    training_scenario_pool = tuple(training_scenarios)
+    vec_env = VecNormalize(
+        DummyVecEnv([lambda: SatelliteSchedulingEnv(scenario_pool=training_scenario_pool)]),
+        norm_obs=False,
+        norm_reward=True,
+    )
+    model = MaskablePPO(
+        "MultiInputPolicy",
+        vec_env,
+        n_steps=config.n_steps,
+        batch_size=config.batch_size,
+        n_epochs=config.n_epochs,
+        learning_rate=config.learning_rate,
+        gamma=config.gamma,
+        seed=config.learning_seed,
+        verbose=0,
+    )
+    callback = FixedScenarioEvalCallback(
+        scenario=held_out_scenario,
+        seed=config.evaluation_seed,
+        eval_freq=config.evaluation_interval,
+        checkpoint_freq=config.checkpoint_interval,
+        checkpoint_dir=checkpoint_dir,
+        metrics_path=metrics_path,
+        deterministic=config.deterministic_eval,
+        should_stop=should_stop,
+    )
+
+    training_scenario_ids = tuple(scenario.scenario_id for scenario in training_scenario_pool)
+    _write_json(run_directory / "config.json", config.model_dump(mode="json"))
+    _write_json(
+        run_directory / "run.json",
+        {
+            "run_id": run_id,
+            "algorithm": "maskable_ppo_domain_randomization",
+            "learning_seed": config.learning_seed,
+            "total_timesteps": config.total_timesteps,
+            "training_scenario_ids": list(training_scenario_ids),
+            "held_out_scenario_id": held_out_scenario.scenario_id,
+        },
+    )
+
+    model.learn(total_timesteps=config.total_timesteps, callback=callback)
+
+    if callback.stop_requested:
+        raise TrainingStoppedError(f"training stopped at timestep {model.num_timesteps}")
+
+    final_model_path, final_evaluation, replay_path = _save_final_artifacts(
+        model,
+        held_out_scenario,
+        config,
+        model_dir=model_dir,
+        metrics_dir=metrics_dir,
+    )
+
+    return ScenarioPoolTrainingArtifacts(
+        run_directory=run_directory,
+        final_model_path=final_model_path,
+        metrics_path=metrics_path,
+        replay_path=replay_path,
+        checkpoints=tuple(callback.checkpoints),
+        final_evaluation=final_evaluation,
+        training_scenario_ids=training_scenario_ids,
+        held_out_scenario_id=held_out_scenario.scenario_id,
+    )
 
 
 def load_maskable_ppo_model(path: Path, scenario: Scenario) -> MaskablePPO:
@@ -409,6 +536,39 @@ def evaluate_trained_policy(
         decisions=tuple(decisions),
         replay=replay,
     )
+
+
+def _save_final_artifacts(
+    model: MaskablePPO,
+    evaluation_scenario: Scenario,
+    config: MaskablePPOTrainingConfig,
+    *,
+    model_dir: Path,
+    metrics_dir: Path,
+) -> tuple[Path, TrainedPolicyEvaluation, Path]:
+    """학습이 끝난 모델의 최종 모델 파일, 평가 결과 및 replay를 같은 규약으로 저장한다.
+
+    `train_maskable_ppo`와 `train_maskable_ppo_with_scenario_pool`이 공유하는 꼬리
+    부분이다 — 두 함수는 학습 대상(단일 시나리오 vs pool)과 저장소 연동 여부가 달라
+    전체를 하나로 합치지 않지만, "모델 저장 → 최종 평가 → artifact 기록"은 완전히
+    동일하다.
+    """
+
+    final_model_path = model_dir / "final-model.zip"
+    model.save(final_model_path)
+    final_evaluation = evaluate_trained_policy(
+        model,
+        evaluation_scenario,
+        seed=config.evaluation_seed,
+        deterministic=config.deterministic_eval,
+    )
+    _write_json(
+        metrics_dir / "final-evaluation.json",
+        _evaluation_payload(final_evaluation, include_decisions=True),
+    )
+    replay_path = metrics_dir / "replay.json"
+    save_episode_replay(replay_path, final_evaluation.replay)
+    return final_model_path, final_evaluation, replay_path
 
 
 def _append_jsonl(path: Path, payload: dict[str, Any]) -> None:

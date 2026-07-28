@@ -179,3 +179,58 @@ def test_maskable_ppo_can_collect_short_rollout(tiny_env: SatelliteSchedulingEnv
     model.learn(total_timesteps=8)
 
     assert model.num_timesteps == 8
+
+
+def test_env_requires_exactly_one_of_scenario_or_scenario_pool() -> None:
+    scenario = generate_scenario(seed=1, size="tiny")
+
+    with pytest.raises(ValueError, match="exactly one"):
+        SatelliteSchedulingEnv()
+    with pytest.raises(ValueError, match="exactly one"):
+        SatelliteSchedulingEnv(scenario, scenario_pool=[scenario])
+
+
+def test_env_rejects_empty_scenario_pool() -> None:
+    with pytest.raises(ValueError, match="must not be empty"):
+        SatelliteSchedulingEnv(scenario_pool=[])
+
+
+def test_env_rejects_scenario_pool_with_mismatched_space() -> None:
+    base = generate_scenario(seed=1, size="tiny")
+    mismatched = base.model_copy(
+        update={
+            "environment": base.environment.model_copy(
+                update={"max_strips": base.environment.max_strips + 1}
+            )
+        }
+    )
+
+    with pytest.raises(ValueError, match="max_strips/max_candidates"):
+        SatelliteSchedulingEnv(scenario_pool=[base, mismatched])
+
+
+def test_scenario_pool_env_rotates_scenarios_across_resets_within_fixed_space() -> None:
+    pool = [generate_scenario(seed=seed, size="tiny") for seed in (1, 2, 3)]
+    env = SatelliteSchedulingEnv(scenario_pool=pool)
+    env.reset(seed=42)
+
+    seen_scenario_ids = set()
+    for _ in range(30):
+        observation, _ = env.reset()
+        assert env.observation_space.contains(observation)
+        seen_scenario_ids.add(env.scenario.scenario_id)
+
+    # pool 크기가 3이고 30번 뽑으면 통계적으로 전부 나와야 정상이다 — 하나만 계속
+    # 나온다면 회전이 아니라 첫 시나리오에 고정된 회귀 버그다.
+    assert seen_scenario_ids == {scenario.scenario_id for scenario in pool}
+
+
+def test_scenario_pool_env_keeps_derived_lookups_in_sync_with_bound_scenario() -> None:
+    pool = [generate_scenario(seed=seed, size="tiny") for seed in (1, 2, 3)]
+    env = SatelliteSchedulingEnv(scenario_pool=pool)
+
+    for _ in range(10):
+        env.reset()
+        bound_strip_ids = {strip.strip_id for strip in env.scenario.strips}
+        assert {strip.strip_id for strip in env._ordered_strips} == bound_strip_ids
+        assert set(env._orders) == {order.order_id for order in env.scenario.orders}

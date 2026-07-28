@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 import gymnasium as gym
@@ -54,16 +55,48 @@ class SatelliteSchedulingEnv(gym.Env[Observation, int]):
 
     metadata = {"render_modes": []}
 
-    def __init__(self, scenario: Scenario):
+    def __init__(
+        self,
+        scenario: Scenario | None = None,
+        *,
+        scenario_pool: Sequence[Scenario] | None = None,
+    ):
         super().__init__()
-        self.scenario = scenario
-        self.simulator = SatelliteSchedulingSimulator(scenario)
-        self._ordered_strips = tuple(
-            sorted(scenario.strips, key=lambda item: (item.order_id, item.sequence, item.strip_id))
-        )
-        self._orders = {item.order_id: item for item in scenario.orders}
-        max_strips = scenario.environment.max_strips
-        max_candidates = scenario.environment.max_candidates
+
+        # scenario_pool이 주어지면 domain randomization 학습용으로, reset()마다 pool에서
+        # 새 시나리오를 뽑아 simulator를 다시 구성한다(단일 시나리오 고정 학습으로는 이
+        # 시나리오 하나에 대한 과적합만 확인할 수 있다는 게 실측으로 드러났다 —
+        # docs/project-knowledge.md 6.16절). observation/action space는 모든 시나리오가
+        # 공유하는 max_strips/max_candidates에서만 정해지므로 pool 전체에서 고정된 채
+        # 유지된다.
+        self._scenario_pool: tuple[Scenario, ...] | None
+        initial_scenario: Scenario
+        if scenario is not None and scenario_pool is not None:
+            raise ValueError("exactly one of scenario or scenario_pool must be given")
+        if scenario_pool is not None:
+            self._scenario_pool = tuple(scenario_pool)
+            if not self._scenario_pool:
+                raise ValueError("scenario_pool must not be empty")
+            reference = self._scenario_pool[0].environment
+            for candidate in self._scenario_pool[1:]:
+                if (
+                    candidate.environment.max_strips != reference.max_strips
+                    or candidate.environment.max_candidates != reference.max_candidates
+                ):
+                    raise ValueError(
+                        "every scenario in scenario_pool must share the same "
+                        "max_strips/max_candidates so the observation/action space stays fixed"
+                    )
+            initial_scenario = self._scenario_pool[0]
+        elif scenario is not None:
+            self._scenario_pool = None
+            initial_scenario = scenario
+        else:
+            raise ValueError("exactly one of scenario or scenario_pool must be given")
+
+        self._bind_scenario(initial_scenario)
+        max_strips = initial_scenario.environment.max_strips
+        max_candidates = initial_scenario.environment.max_candidates
 
         # Dict 관측은 성격이 다른 전역·strip·후보 정보를 분리하고,
         # 향후 Maskable PPO의 MultiInputPolicy가 각 배열을 함께 처리하게 한다.
@@ -104,16 +137,36 @@ class SatelliteSchedulingEnv(gym.Env[Observation, int]):
         # 0은 skip, 1~128은 현재 후보 slot이다.
         self.action_space = spaces.Discrete(max_candidates + 1)
 
+    def _bind_scenario(self, scenario: Scenario) -> None:
+        """현재 episode가 쓸 시나리오로 simulator와 파생 lookup을 (재)구성한다."""
+
+        self.scenario = scenario
+        self.simulator = SatelliteSchedulingSimulator(scenario)
+        self._ordered_strips = tuple(
+            sorted(scenario.strips, key=lambda item: (item.order_id, item.sequence, item.strip_id))
+        )
+        self._orders = {item.order_id: item for item in scenario.orders}
+
     def reset(
         self,
         *,
         seed: int | None = None,
         options: dict[str, Any] | None = None,
     ) -> tuple[Observation, dict[str, Any]]:
-        """Gymnasium seed 규약을 적용하고 simulator episode를 초기화한다."""
+        """Gymnasium seed 규약을 적용하고 simulator episode를 초기화한다.
+
+        `scenario_pool`로 만들어진 env는 매 reset마다 pool에서 시나리오를 다시 뽑아
+        학습이 하나의 배치를 외우지 않고 여러 문제를 겪도록 한다(domain randomization).
+        `self.np_random`은 Gymnasium이 `super().reset(seed=...)`에서 관리하는 RNG라,
+        seed를 명시적으로 안 줘도(에피소드마다 자동 reset되는 일반적인 경우) 최초 seed로부터
+        재현 가능한 시퀀스를 계속 이어간다.
+        """
 
         super().reset(seed=seed)
         del options
+        if self._scenario_pool is not None:
+            index = int(self.np_random.integers(len(self._scenario_pool)))
+            self._bind_scenario(self._scenario_pool[index])
         state = self.simulator.reset()
         return self._observation(state), self._base_info()
 

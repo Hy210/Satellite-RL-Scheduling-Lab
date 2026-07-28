@@ -15,6 +15,7 @@ from rl_core.training import (
     evaluate_trained_policy,
     load_maskable_ppo_model,
     train_maskable_ppo,
+    train_maskable_ppo_with_scenario_pool,
 )
 
 
@@ -163,6 +164,57 @@ def test_training_failure_is_recorded_in_optional_storage(
     failed_run = repository.load_training_run("failed-run")
     assert failed_run.status == RunStatus.FAILED
     assert failed_run.error_message == "simulated learning failure"
+
+
+def test_scenario_pool_training_saves_reloadable_artifacts(tmp_path: Path) -> None:
+    training_scenarios = [generate_scenario(seed=seed, size="tiny") for seed in (1, 2, 3)]
+    held_out_scenario = generate_scenario(seed=4, size="tiny")
+    config = MaskablePPOTrainingConfig(
+        total_timesteps=8,
+        learning_seed=11,
+        evaluation_seed=17,
+        n_steps=8,
+        batch_size=4,
+        n_epochs=1,
+        checkpoint_interval=4,
+        evaluation_interval=4,
+        artifact_root=tmp_path,
+    )
+
+    artifacts = train_maskable_ppo_with_scenario_pool(
+        training_scenarios,
+        held_out_scenario,
+        config,
+        run_id="pool-test-run",
+    )
+
+    assert artifacts.training_scenario_ids == tuple(
+        scenario.scenario_id for scenario in training_scenarios
+    )
+    assert artifacts.held_out_scenario_id == held_out_scenario.scenario_id
+    assert artifacts.final_model_path.exists()
+    assert artifacts.checkpoints
+    assert artifacts.metrics_path.exists()
+    assert artifacts.replay_path.exists()
+
+    # held-out 평가는 pool에 없는 시나리오를 대상으로 해야 한다 — 학습이 pool을
+    # 외운 것과 무관하게 실제로 일반화 신호를 추적하려는 목적과 어긋나면 안 된다.
+    assert artifacts.final_evaluation.scenario_id == held_out_scenario.scenario_id
+
+    # VecNormalize로 학습됐어도, 평가는 관측만 보고 reward 정규화 상태를 몰라도 되므로
+    # raw 환경으로 다시 불러와 평가해도 동일한 결과가 나와야 한다.
+    reloaded = load_maskable_ppo_model(artifacts.final_model_path, held_out_scenario)
+    reloaded_evaluation = evaluate_trained_policy(
+        reloaded, held_out_scenario, seed=config.evaluation_seed
+    )
+    assert reloaded_evaluation.total_return == pytest.approx(
+        artifacts.final_evaluation.total_return
+    )
+
+    metric_rows = [
+        json.loads(line) for line in artifacts.metrics_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert metric_rows
 
 
 def test_training_stop_request_saves_checkpoint_without_final_evaluation(tmp_path: Path) -> None:
