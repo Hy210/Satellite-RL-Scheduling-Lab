@@ -665,7 +665,12 @@ Stable-Baselines3의 `PPO`/`MaskablePPO`는 `learning_rate`에 고정 float 대�
 
 ### 핵심 정의
 
-과적합(overfitting)은 정책이 학습에 사용한 특정 데이터·환경의 세부사항을 "외워서" 그 환경에서만 잘 작동하는 상태를 말한다. 일반화(generalization)는 학습에 쓰지 않은 새로운 상황에서도 정책이 잘 작동하는 능력이다. 이 프로젝트에는 서로 다른 역할을 하는 두 종류의 seed가 있다 — (1) `SCENARIO_SEED`처럼 생성기에 주는, "어떤 주문·strip·기회가 존재하는가"(문제 자체)를 정하는 시나리오 seed, (2) `learning_seed`처럼 PPO 학습에 주는, 신경망 초기화와 탐색용 난수를 정하는 학습 seed.
+과적합(overfitting)은 정책이 학습에 사용한 특정 데이터·환경의 세부사항을 "외워서" 그 환경에서만 잘 작동하는 상태를 말한다. 일반화(generalization)는 학습에 쓰지 않은 새로운 상황에서도 정책이 잘 작동하는 능력이다. 이 프로젝트에는 이름이 비슷해 헷갈리기 쉬운 용어 네 가지가 있다.
+
+- **시나리오(scenario)**: `generate_scenario(seed=X, size=...)`로 만드는 실제 스케줄링 문제 그 자체다. seed가 다르면 주문·우선순위·기하 구조가 다른 완전히 다른 문제가 나온다.
+- **learning seed**: 시나리오(문제)와 무관하게, PPO 학습 과정 자체(신경망 초기화, 탐색 난수)를 결정하는 seed다. 같은 시나리오를 두고 learning seed만 바꾸면 "같은 문제를 다른 출발점에서 풀어보는" 여러 학습 시도가 된다.
+- **training pool 시나리오**: domain randomization 학습에서 정책이 학습 중 실제로 겪는 시나리오들의 묶음이다(예: seed 2001~2020).
+- **held-out 시나리오**: training pool에 전혀 포함되지 않아 학습 중 한 번도 보여주지 않은 시나리오다. 학습이 끝난 뒤 "처음 보는 문제도 잘 푸는가"를 재는 용도로만 쓴다(예: seed 1001~1005).
 
 ### 직관
 
@@ -686,6 +691,7 @@ Stable-Baselines3의 `PPO`/`MaskablePPO`는 `learning_rate`에 고정 float 대�
 ### 학습 기록
 
 - 2026-07-28: full 규모 8-seed 실행이 시나리오가 아니라 학습 seed만 다양화한 것이었음을 명확히 하고, 학습 seed 다양화와 시나리오 일반화가 서로 다른 문제라는 점을 정리했다.
+- 2026-07-30: domain randomization 재현성 검증(learning seed 여러 개, held-out 시나리오 확장)을 논의하던 중 "learning seed/시나리오/training pool/held-out" 네 용어가 헷갈린다는 질문이 있어, 핵심 정의에 용어별 요약을 추가했다.
 - 2026-07-28: 실제로 확인해보기 위해 학습 seed 11 모델(가장 안정적으로 227 strip/23 order를 유지한 모델)을 재학습 없이 학습에 쓰지 않은(unseen) 시나리오 5개(`tools/stage14_zero_shot_transfer_check.py`, seed 1001~1005, full 규모)에 그대로 평가했다. 결과: random_valid는 5/5 시나리오에서 이겼지만(순수 무작위보다는 낫다), 세 휴리스틱을 전부 넘은 건 1/5뿐이었다(학습 시나리오에서는 8-seed 중 7/8이 넘었던 것과 대비). 즉 이 정책은 완전한 랜덤보다는 낫지만, 학습 시나리오에서 보인 "휴리스틱을 이기는" 능력의 상당 부분은 이 특정 시나리오 배치에 대한 과적합이었다는 것을 실측으로 확인했다 — 학습 seed를 늘리는 것과 시나리오 일반화가 다른 문제라는 위 결론을 뒷받침하는 직접적인 증거다. 상세 수치는 `docs/project-knowledge.md` 6.16절.
 
 ## Domain randomization과 reward 정규화

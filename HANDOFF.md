@@ -2,13 +2,13 @@
 
 ## 현재 상태
 
-- 마지막 갱신일: 2026-07-29
+- 마지막 갱신일: 2026-07-30
 - 작업 디렉터리: `D:\HY\01. Developer\Project\NSICPS_RL_Scheduling`
 - 프로젝트 상태: 구현 계획 단계 0~9 완료, 단계 2A, 7A 및 13 완료
 - 현재 구현 단계: 단계 14 통합 검증과 문서 정리 (검증 항목 10/10 완료, 문서 0/7)
-- 진행 중 작업: 없음 (full 규모 domain randomization 500,000-timestep 학습 완료, held-out zero-shot 결과를 `docs/project-knowledge.md` 6.17절에 반영. 코드·테스트·문서 lint·pytest·mypy 검증 완료, 커밋 대기)
+- 진행 중 작업: 없음 (domain randomization 재현성 확인 완료 — learning seed 4개(11, 23, 37, 41) × held-out 20개(seed 1001~1020) 전부 실행 완료, 결과를 `docs/project-knowledge.md` 6.18절에 반영. 코드·문서 lint·pytest 검증 완료, 커밋 대기)
 - Blocker: 없음
-- Git 상태: 2026-07-25 CP-SAT baseline, 저장 계층, Backend, Frontend 변경을 `7d62fc7`로, 2026-07-26 CP-SAT worker 오류 코드 정리·통합 테스트·`.gitignore` 정리를 `567bac7`로, 단계 14 1차 배치를 `6dfadec`로, 2차 배치를 `895f3c4`로, 3차 배치(성능·메모리 벤치마크)를 `2571c5e`로, 4차 배치(full 규모 RL·모든 기준 정책 비교)를 `b625337`로, 2026-07-26 변경(attitude-target 시각화, geometry 타입 버그 수정, stage14 도구 일반화, `tools/import_offline_training_run.py`)을 `711ca56`로, 2026-07-27 생성기 order 겹침 엔지니어링·`test_backend.py` 부동소수점 비교 수정을 `b0061d5`로, 2026-07-28 `--ppo-learning-seeds`/`--resume-from` CLI 추가와 full 규모 8-seed 재검증을 `273e375`로 커밋·push 완료. 2026-07-28~29 변경(CP-SAT 목적함수 관찰, RL 학습 노트 보강, zero-shot 전이 확인 도구·결과, domain randomization 학습 구현과 full 규모 검증 결과)은 커밋이 남아 있다.
+- Git 상태: 2026-07-25 CP-SAT baseline, 저장 계층, Backend, Frontend 변경을 `7d62fc7`로, 2026-07-26 CP-SAT worker 오류 코드 정리·통합 테스트·`.gitignore` 정리를 `567bac7`로, 단계 14 1차 배치를 `6dfadec`로, 2차 배치를 `895f3c4`로, 3차 배치(성능·메모리 벤치마크)를 `2571c5e`로, 4차 배치(full 규모 RL·모든 기준 정책 비교)를 `b625337`로, 2026-07-26 변경(attitude-target 시각화, geometry 타입 버그 수정, stage14 도구 일반화, `tools/import_offline_training_run.py`)을 `711ca56`로, 2026-07-27 생성기 order 겹침 엔지니어링·`test_backend.py` 부동소수점 비교 수정을 `b0061d5`로, 2026-07-28 `--ppo-learning-seeds`/`--resume-from` CLI 추가와 full 규모 8-seed 재검증을 `273e375`로, 2026-07-28~29 domain randomization 학습 구현과 full 규모 1-seed 검증 결과를 `aa46729`로 커밋·push 완료. 2026-07-30 변경(`stage14_domain_randomization_check.py`에 `--learning-seed`/`--held-out-scenario-seeds` CLI 추가, 4-seed 재현성 확인 결과, RL 학습 노트 용어 정리)은 커밋이 남아 있다.
 - Git 원격: `https://github.com/Hy210/Satellite-RL-Scheduling-Lab.git`
 
 ## 현재 목표
@@ -356,10 +356,12 @@
 - `.venv\Scripts\python.exe -m ruff check .` / `ruff format --check .`: 통과 (신규 `tools/stage14_domain_randomization_check.py` 포함)
 - `.venv\Scripts\python.exe -m mypy`: 통과
 - 이번 배치는 `rl_core/`, `tests/`, `tools/`, 문서만 변경했고 Frontend 파일은 건드리지 않아 `npm run build` 재확인은 생략했다.
+- 2026-07-30 domain randomization 개선이 재현되는지 확인하기 위해 `tools/stage14_domain_randomization_check.py`에 `--learning-seed`/`--held-out-scenario-seeds` CLI를 추가하고, learning seed 4개(11, 23, 37, 41)를 각각 500,000 timesteps로 학습해 held-out 20개(seed 1001~1020, 기존 5개 포함)로 평가했다. 이 sweep 도중 컴퓨터가 세 번째로 예기치 않게 재부팅됐으나(seed 23이 checkpoint 300,000/500,000에서 중단), 이미 완료된 seed 11을 보존하고 seed 23만 재시작해 전체를 다시 돌리지 않고 완주했다.
+- **핵심 결과: 4개 seed 전부에서 원래 held-out 5개에 대한 평균 마진이 단일 시나리오 기준선(-5.10, 6.16절)에서 -0.52~+0.22로 개선됐다** — 6.17절의 개선이 seed 11 하나의 우연이 아니라 재현되는 효과임을 확인했다. 세 휴리스틱 전부를 이긴 비율은 seed별로 25%~60%(20개 중 5~12개)로 편차가 있었다. 20개 중 3개(1003/1009/1013)는 4개 seed 전부가 이겼고, 5개(1004/1006/1014/1016/1018)는 4개 seed 전부가 졌다 — 항상 쉬운/항상 어려운 unseen 시나리오가 있다는 뜻. seed 37은 학습 곡선이 중간에 54.93까지 떨어졌다가 겨우 회복해 성적이 가장 낮았는데(5/20), 이 seed는 6.12절 단일 시나리오 8-seed 실험에서도 유일하게 붕괴했던 바로 그 seed다 — 시나리오와 무관하게 불안정한 seed일 가능성. 상세는 `docs/project-knowledge.md` 6.18절.
 
 ## 다음 세션의 첫 작업
 
-2026-07-28~29 변경분(domain randomization 학습 코드, 신규 도구 2개, 테스트, 문서, full 규모 검증 결과)은 검증을 마쳤으니 커밋·push한다. 이어서 [구현 계획의 단계 14](docs/implementation-plan.md) 통합 검증 10/10에 이어 남은 문서 7개 항목(설치 및 개발 환경, 로컬 실행 방법, 테스트 방법, 시나리오 데이터 형식, API 계약, 학습 및 평가 실행 방법, 알려진 제한사항)을 정리해 단계 14와 프로젝트 전체를 완료한다. 루트 `README.md`가 현재 설치·검증 명령만 있고 로컬 실행 방법(uvicorn/Vite 구동 등)이 비어 있다는 점부터 확인한다. PPO/도메인 랜덤화 쪽에서 검토 중인 다음 개선 방향(6.17절)은 (1) 근소하게 못 넘은 3개 시나리오를 위한 더 큰 timesteps/pool 재시도, (2) 이번에 제외한 learning rate 감쇠를 domain randomization 학습에도 적용, (3) pool·held-out 개수를 늘려 결과 재현성 확인이고, 별개로 CP-SAT 목적함수에 `missed_penalty` 항을 추가해 진짜 상한선을 다시 계산하는 것(6.15절)도 남아 있다 — 모두 사용자 확인 후 진행한다.
+2026-07-30 변경분(`--learning-seed`/`--held-out-scenario-seeds` CLI, 4-seed 재현성 확인 결과, 문서)은 검증을 마쳤으니 커밋·push한다. 이어서 [구현 계획의 단계 14](docs/implementation-plan.md) 통합 검증 10/10에 이어 남은 문서 7개 항목(설치 및 개발 환경, 로컬 실행 방법, 테스트 방법, 시나리오 데이터 형식, API 계약, 학습 및 평가 실행 방법, 알려진 제한사항)을 정리해 단계 14와 프로젝트 전체를 완료한다. 루트 `README.md`가 현재 설치·검증 명령만 있고 로컬 실행 방법(uvicorn/Vite 구동 등)이 비어 있다는 점부터 확인한다. PPO/도메인 랜덤화 쪽에서 검토할 다음 방향(6.18절)은 (1) 항상 지는 5개 시나리오의 공통 구조 분석, (2) seed 37류 불안정성이 domain randomization에서도 반복되는지 seed를 더 늘려 확인, (3) learning rate 감쇠를 그 불안정성에 타겟해서 적용, (4) 더 큰 pool/budget으로 평균 마진을 양수로 끌어올리는 시도이고, 별개로 CP-SAT 목적함수에 `missed_penalty` 항을 추가해 진짜 상한선을 다시 계산하는 것(6.15절)도 남아 있다 — 모두 사용자 확인 후 진행한다.
 
 ## 관련 문서
 

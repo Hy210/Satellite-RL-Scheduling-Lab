@@ -8,9 +8,15 @@ held-out 시나리오에서 실제로 일반화가 개선됐는지 확인한다.
 시나리오에서 보인 우위의 상당 부분이 그 시나리오 하나에 대한 과적합이었다는 뜻이다.
 
 이 스크립트는 학습 자체를 `--training-scenario-seeds`(기본 20개, 2001~2020) 여러
-시나리오에 걸쳐 진행해 정책이 일반적인 전략을 배우도록 강제하고, 학습이 끝나면 같은
-held-out 5개(1001~1005, 기존 zero-shot 확인과 동일 세트)에 대해 재학습 없이 평가해
-기존 단일 시나리오 모델의 1/5 결과와 직접 비교한다.
+시나리오에 걸쳐 진행해 정책이 일반적인 전략을 배우도록 강제하고, 학습이 끝나면
+`--held-out-scenario-seeds`(기본 5개, 1001~1005 — 기존 zero-shot 확인과 동일 세트)에
+대해 재학습 없이 평가해 기존 단일 시나리오 모델의 1/5 결과와 직접 비교한다.
+
+`--learning-seed`로 PPO 학습 seed(신경망 초기화·탐색 난수 — 시나리오 seed와는 다른
+개념이다)를 바꿔 여러 번 돌리면, "domain randomization이 실제로 재현되는 개선인지,
+이 seed 하나의 우연인지"를 확인할 수 있다. held-out을 늘리는 건 재학습 없는 평가라
+거의 공짜지만, learning seed를 늘리는 건 매번 처음부터 다시 학습해야 해서 비용이
+seed 수에 비례해 커진다.
 
 learning rate 감쇠 등 다른 학습 안정화 기법은 이번 범위에서 의도적으로 제외했다 —
 "여러 시나리오에 걸친 학습 자체가 되는지"를 먼저 확인하는 게 그 디테일을 다듬는 것보다
@@ -40,11 +46,12 @@ if str(TOOLS_ROOT) not in sys.path:
 
 TRAINING_SCENARIO_SEED_START = 2001
 DEFAULT_TRAINING_SCENARIO_COUNT = 20
-# zero-shot 확인(stage14_zero_shot_transfer_check.py)과 동일 세트를 써야 결과가
-# 직접 비교된다 — 절대 training pool과 겹치면 안 된다(main()에서 검사).
-HELD_OUT_SCENARIO_SEEDS = (1001, 1002, 1003, 1004, 1005)
+# zero-shot 확인(stage14_zero_shot_transfer_check.py)의 기본값과 동일한 5개다 —
+# 절대 training pool과 겹치면 안 된다(main()에서 검사). --held-out-scenario-seeds로
+# 늘릴 수 있다(예: 재현성 확인 시 1001~1020으로 확장, 기존 5개를 그대로 포함).
+DEFAULT_HELD_OUT_SCENARIO_SEEDS = (1001, 1002, 1003, 1004, 1005)
 DEFAULT_SCENARIO_SIZE = "full"
-LEARNING_SEED = 11
+DEFAULT_LEARNING_SEED = 11
 EVALUATION_SEED = 17
 N_STEPS = 256
 BATCH_SIZE = 64
@@ -57,17 +64,21 @@ def main() -> None:
     """CLI 인자를 읽고 domain randomization 학습·확인을 실행한다."""
 
     args = _parse_args()
-    overlap = set(args.training_scenario_seeds) & set(HELD_OUT_SCENARIO_SEEDS)
+    overlap = set(args.training_scenario_seeds) & set(args.held_out_scenario_seeds)
     if overlap:
         raise ValueError(
             f"training scenario seeds must not overlap held-out seeds: {sorted(overlap)}"
         )
 
-    benchmark_root = args.artifact_root / f"stage14-domain-randomization-{_timestamp()}"
+    benchmark_root = args.artifact_root / (
+        f"stage14-domain-randomization-seed{args.learning_seed}-{_timestamp()}"
+    )
     summary = run_check(
         benchmark_root=benchmark_root,
         scenario_size=args.scenario_size,
         training_scenario_seeds=args.training_scenario_seeds,
+        held_out_scenario_seeds=args.held_out_scenario_seeds,
+        learning_seed=args.learning_seed,
         total_timesteps=args.total_timesteps,
         checkpoint_interval=args.checkpoint_interval,
         evaluation_interval=args.evaluation_interval,
@@ -85,11 +96,13 @@ def run_check(
     benchmark_root: Path,
     scenario_size: str,
     training_scenario_seeds: tuple[int, ...],
+    held_out_scenario_seeds: tuple[int, ...] = DEFAULT_HELD_OUT_SCENARIO_SEEDS,
+    learning_seed: int = DEFAULT_LEARNING_SEED,
     total_timesteps: int,
     checkpoint_interval: int,
     evaluation_interval: int,
 ) -> dict[str, Any]:
-    """training pool에 걸쳐 학습한 뒤, 같은 held-out 5개로 zero-shot 성적을 확인한다."""
+    """training pool에 걸쳐 학습한 뒤, held-out 시나리오로 zero-shot 성적을 확인한다."""
 
     from stage14_zero_shot_transfer_check import run_check as run_zero_shot_check
 
@@ -100,15 +113,15 @@ def run_check(
     training_scenarios = [
         generate_scenario(seed=seed, size=scenario_size) for seed in training_scenario_seeds
     ]
-    # 학습 중 곡선 추적은 held-out 세트 중 하나만 쓴다 — eval_freq마다 5개를 전부
-    # 돌리면 학습 비용이 커지고, 최종 zero-shot 비교는 아래에서 5개를 전부 따로 확인한다.
+    # 학습 중 곡선 추적은 held-out 세트 중 하나만 쓴다 — eval_freq마다 held-out
+    # 전체를 다 돌리면 학습 비용이 커지고, 최종 zero-shot 비교는 아래에서 전부 확인한다.
     held_out_training_curve_scenario = generate_scenario(
-        seed=HELD_OUT_SCENARIO_SEEDS[0], size=scenario_size
+        seed=held_out_scenario_seeds[0], size=scenario_size
     )
 
     config = MaskablePPOTrainingConfig(
         total_timesteps=total_timesteps,
-        learning_seed=LEARNING_SEED,
+        learning_seed=learning_seed,
         evaluation_seed=EVALUATION_SEED,
         n_steps=N_STEPS,
         batch_size=BATCH_SIZE,
@@ -121,14 +134,14 @@ def run_check(
         training_scenarios,
         held_out_training_curve_scenario,
         config,
-        run_id="domain-randomization",
+        run_id=f"domain-randomization-seed-{learning_seed}",
     )
 
     zero_shot_summary = run_zero_shot_check(
         benchmark_root=benchmark_root / "zero-shot-check",
         model_path=artifacts.final_model_path,
         scenario_size=scenario_size,
-        scenario_seeds=HELD_OUT_SCENARIO_SEEDS,
+        scenario_seeds=held_out_scenario_seeds,
     )
 
     training_curve = [
@@ -140,8 +153,9 @@ def run_check(
         "check": {
             "created_at": datetime.now().isoformat(timespec="seconds"),
             "scenario_size": scenario_size,
+            "learning_seed": learning_seed,
             "training_scenario_seeds": list(training_scenario_seeds),
-            "held_out_scenario_seeds": list(HELD_OUT_SCENARIO_SEEDS),
+            "held_out_scenario_seeds": list(held_out_scenario_seeds),
             "total_timesteps": total_timesteps,
             "artifact_root": str(benchmark_root),
             "final_model_path": str(artifacts.final_model_path),
@@ -189,6 +203,21 @@ def _parse_args() -> argparse.Namespace:
         help="Comma-separated training scenario seeds (the randomization pool).",
     )
     parser.add_argument(
+        "--held-out-scenario-seeds",
+        type=_parse_seed_list,
+        default=DEFAULT_HELD_OUT_SCENARIO_SEEDS,
+        help=(
+            "Comma-separated held-out scenario seeds for the final zero-shot comparison "
+            f"(default: {','.join(str(s) for s in DEFAULT_HELD_OUT_SCENARIO_SEEDS)})."
+        ),
+    )
+    parser.add_argument(
+        "--learning-seed",
+        type=int,
+        default=DEFAULT_LEARNING_SEED,
+        help="PPO learning seed (network init + exploration RNG), not a scenario seed.",
+    )
+    parser.add_argument(
         "--total-timesteps",
         type=int,
         required=True,
@@ -209,6 +238,7 @@ def _timestamp() -> str:
 
 def _print_summary(summary_path: Path, summary: dict[str, Any]) -> None:
     print(f"summary: {summary_path}")
+    print(f"learning_seed: {summary['check']['learning_seed']}")
     curve = summary["training_curve_on_held_out"]
     if curve:
         print(
